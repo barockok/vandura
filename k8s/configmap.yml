@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vandura-config
+  namespace: vandura
+data:
+  S3_REGION: "us-east-1"
+  S3_BUCKET: "vandura-results"
+  S3_SIGNED_URL_EXPIRY: "86400"
+  KMS_PROVIDER: "local"

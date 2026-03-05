@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vandura
+  namespace: vandura
+  labels:
+    app: vandura
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vandura
+  template:
+    metadata:
+      labels:
+        app: vandura
+    spec:
+      containers:
+        - name: vandura
+          image: ghcr.io/barockok/vandura:latest
+          ports:
+            - containerPort: 3000
+              name: health
+          envFrom:
+            - configMapRef:
+                name: vandura-config
+            - secretRef:
+                name: vandura-secrets
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: health
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: health
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+      restartPolicy: Always

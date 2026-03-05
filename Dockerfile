@@ -15,6 +15,8 @@ RUN addgroup -S vandura && adduser -S vandura -G vandura
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/package.json ./
+COPY --from=build /app/config ./config
+COPY --from=build /app/src/db/migrations ./src/db/migrations
 USER vandura
 EXPOSE 3000
 CMD ["node", "dist/index.js"]
