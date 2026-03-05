@@ -1,0 +1,18 @@
+tool_policies:
+  mcp__db__query:
+    tier: "dynamic"
+    guardrails: |
+      Run EXPLAIN before executing.
+
+  mcp__db__write:
+    tier: 3
+    guardrails: |
+      Show the exact SQL statement.
+
+  mcp__gcs__upload:
+    tier: 1
+
+  _default:
+    tier: 2
+    guardrails: |
+      Describe what this tool will do.

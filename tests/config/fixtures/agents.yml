@@ -1,0 +1,9 @@
+agents:
+  - name: "TestAgent"
+    avatar: "robot"
+    role: "admin"
+    personality: "Helpful and thorough."
+    tools: [mcp-db, mcp-rest]
+    max_concurrent_tasks: 2
+    system_prompt_extra: |
+      You are a test agent.

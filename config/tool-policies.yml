@@ -1,0 +1,30 @@
+tool_policies:
+  mcp__db__query:
+    tier: "dynamic"
+    guardrails: |
+      Before executing, run EXPLAIN on the query first.
+      If estimated rows > 1000 or a sequential scan is detected, escalate to tier 2.
+      If the query touches tables in the sensitive list, escalate to tier 3.
+      Always show the query and EXPLAIN output in the thread before executing.
+
+  mcp__db__write:
+    tier: 3
+    guardrails: |
+      Show the exact SQL statement and affected table.
+      Estimate how many rows will be affected.
+      Never allow DROP or TRUNCATE.
+
+  mcp__confluence__create_page:
+    tier: 2
+    guardrails: |
+      Confirm the target space and page title with the initiator.
+      Show a preview of the content before creating.
+
+  mcp__gcs__upload:
+    tier: 1
+
+  _default:
+    tier: 2
+    guardrails: |
+      Describe what this tool will do and what parameters you are passing.
+      Ask the initiator to confirm before proceeding.

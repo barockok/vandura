@@ -1,0 +1,12 @@
+roles:
+  pm:
+    agents: [atlas, scribe]
+    tool_tiers:
+      mcp-db: { max_tier: 1 }
+      mcp-confluence: { max_tier: 2 }
+
+  engineering:
+    agents: [atlas, sentinel]
+    tool_tiers:
+      mcp-db: { max_tier: 3 }
+      mcp-rest: { max_tier: 3 }

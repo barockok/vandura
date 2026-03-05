@@ -1,0 +1,4 @@
+tool_policies:
+  mcp__bad__tool:
+    tier: 5
+    guardrails: "This should fail validation"
