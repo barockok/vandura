@@ -498,7 +498,472 @@ CREATE TABLE audit_log (
 
 ---
 
-## 9. Build vs. Buy Summary
+## 9. Testing Infrastructure & CI/CD
+
+### Philosophy
+
+Every feature must be verifiable end-to-end without external dependencies. Tests run the same way locally and in CI. No "works on my machine."
+
+### Test Layers
+
+| Layer | What | Tools | Runs |
+|-------|------|-------|------|
+| **Unit** | Pure logic: tier classification, config parsing, credential encryption/decryption, permission checks | Vitest | Every commit |
+| **Integration** | Component interactions: approval engine + Postgres, thread manager + Postgres, credential manager + KMS mock | Vitest + Testcontainers (Postgres) | Every commit |
+| **MCP Server** | Each MCP server tested against real backing services | Vitest + Testcontainers (Postgres, mock HTTP servers) | Every commit |
+| **End-to-End** | Full conversation flow: Slack event in, agent processes, tool calls, approval flow, Slack messages out | Docker Compose (full stack) + Slack test harness | PR merge, release |
+| **Smoke** | Post-deploy verification against real environment | Lightweight script hitting health endpoints + one known query | Post-deploy |
+
+### Testcontainers Setup
+
+Integration and MCP server tests spin up real dependencies via Testcontainers — no mocks for data stores:
+
+```typescript
+// tests/setup/containers.ts
+import { PostgreSqlContainer } from "@testcontainers/postgresql";
+
+let pgContainer: StartedPostgreSqlContainer;
+
+beforeAll(async () => {
+  pgContainer = await new PostgreSqlContainer("postgres:16-alpine")
+    .withDatabase("squadron_test")
+    .start();
+
+  // Run migrations against the test DB
+  await runMigrations(pgContainer.getConnectionUri());
+}, 60_000);
+
+afterAll(async () => {
+  await pgContainer.stop();
+});
+```
+
+Each test suite gets a fresh database. Tests are isolated — no shared state between suites.
+
+### Docker Compose for E2E
+
+A `docker-compose.test.yml` brings up the entire stack for end-to-end testing:
+
+```yaml
+# docker-compose.test.yml
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: squadron_test
+      POSTGRES_USER: squadron
+      POSTGRES_PASSWORD: test
+    ports:
+      - "5433:5432"
+
+  squadron:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: test
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://squadron:test@postgres:5432/squadron_test
+      KMS_PROVIDER: local          # local file-based KMS for testing
+      SLACK_MODE: test_harness     # intercepts Slack API calls
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+    volumes:
+      - ./test-config:/app/config  # test tool policies, agent configs
+
+  slack-harness:
+    build:
+      context: ./tests/slack-harness
+    depends_on:
+      - squadron
+    environment:
+      SQUADRON_URL: http://squadron:3000
+    ports:
+      - "3001:3001"               # test API to simulate Slack events
+```
+
+### Slack Test Harness
+
+A lightweight service that simulates Slack's event API and captures outgoing messages:
+
+- Sends `app_mention` events to Squadron
+- Captures thread replies, approval request messages
+- Simulates user reactions/replies for approval flows
+- Asserts message content, ordering, and thread structure
+
+### What Gets Tested E2E
+
+1. **Happy path**: User mentions agent -> thread created -> tier 1 query -> result posted
+2. **Tier 2 approval**: User requests doc creation -> agent asks for confirmation -> user confirms -> doc created
+3. **Tier 3 maker-checker**: User requests DB write -> agent asks checker -> checker approves -> write executed
+4. **Tier 3 rejection**: Checker denies -> agent reports denial, no execution
+5. **Approval timeout**: No response within timeout -> agent reports timeout
+6. **Busy agent**: Agent at max concurrent tasks -> responds with status + alternatives
+7. **Permission denied**: User without access to a shared connection -> agent reports missing access
+8. **Credential flow**: OAuth token refresh during tool call -> new token encrypted and saved
+9. **GCS upload**: Large result set -> uploaded to GCS -> signed URL posted in thread
+10. **Onboarding**: User joins channel -> DM sent -> role selected -> permissions granted
+
+### GitHub Actions CI/CD
+
+```yaml
+# .github/workflows/ci.yml
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-and-typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+
+  unit-and-integration:
+    runs-on: ubuntu-latest
+    needs: lint-and-typecheck
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test -- --reporter=junit --outputFile=test-results.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: test-results.xml
+
+  e2e:
+    runs-on: ubuntu-latest
+    needs: unit-and-integration
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose -f docker-compose.test.yml up --build --abort-on-container-exit
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      - run: docker compose -f docker-compose.test.yml down -v
+
+  build-and-push:
+    runs-on: ubuntu-latest
+    needs: e2e
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}:latest
+            ghcr.io/${{ github.repository }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+```
+
+### Release Pipeline
+
+```yaml
+# .github/workflows/release.yml
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}:${{ github.ref_name }}
+            ghcr.io/${{ github.repository }}:latest
+      - uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+```
+
+### Docker Image
+
+Multi-stage Dockerfile:
+
+```dockerfile
+# Build stage
+FROM node:22-alpine AS build
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci
+COPY . .
+RUN npm run build
+
+# Test stage (used by docker-compose.test.yml)
+FROM build AS test
+RUN npm ci --include=dev
+CMD ["npm", "test"]
+
+# Production stage
+FROM node:22-alpine AS production
+WORKDIR /app
+RUN addgroup -S squadron && adduser -S squadron -G squadron
+COPY --from=build /app/dist ./dist
+COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /app/package.json ./
+USER squadron
+EXPOSE 3000
+CMD ["node", "dist/index.js"]
+```
+
+---
+
+## 10. Deployment & Installation Guide
+
+### Prerequisites
+
+- Kubernetes cluster (1.28+)
+- PostgreSQL 16+ (managed or self-hosted)
+- GCS bucket (for result uploads)
+- KMS access (GCP KMS, HashiCorp Vault, or K8s Secrets with encryption at rest)
+- Slack workspace with admin access to create apps
+- Anthropic API key
+
+### Step 1: Create Slack Apps
+
+Each agent needs its own Slack app. For each agent (e.g., Atlas, Scribe, Sentinel):
+
+1. Go to https://api.slack.com/apps and click "Create New App"
+2. Name it after the agent (e.g., "Atlas")
+3. Enable **Socket Mode** (Settings > Socket Mode > Enable)
+4. Add **Bot Token Scopes**: `app_mentions:read`, `chat:write`, `channels:history`, `groups:history`, `im:write`, `channels:read`, `groups:read`, `users:read`
+5. Subscribe to **Events**: `app_mention`, `message.channels`, `message.groups`, `member_joined_channel`
+6. Install to workspace and note the **Bot Token** (`xoxb-...`) and **App-Level Token** (`xapp-...`)
+7. Set a custom avatar and display name matching the agent persona
+
+### Step 2: Provision Infrastructure
+
+```bash
+# Clone the repository
+git clone https://github.com/your-org/squadron.git
+cd squadron
+
+# Copy example config
+cp config/squadron.example.yml config/squadron.yml
+cp config/tool-policies.example.yml config/tool-policies.yml
+cp config/agents.example.yml config/agents.yml
+```
+
+#### PostgreSQL
+
+```bash
+# If using managed Postgres, note the connection string.
+# If self-hosted on K8s:
+kubectl create namespace squadron
+kubectl apply -f k8s/postgres-statefulset.yml
+```
+
+#### GCS Bucket
+
+```bash
+# Create the results bucket
+gsutil mb -l US gs://your-org-squadron-results
+
+# Set lifecycle policy (auto-delete after 7 days)
+gsutil lifecycle set k8s/gcs-lifecycle.json gs://your-org-squadron-results
+
+# Create a service account for GCS access
+gcloud iam service-accounts create squadron-gcs \
+  --display-name="Squadron GCS Service Account"
+gcloud storage buckets add-iam-policy-binding gs://your-org-squadron-results \
+  --member="serviceAccount:squadron-gcs@your-project.iam.gserviceaccount.com" \
+  --role="roles/storage.objectAdmin"
+```
+
+### Step 3: Configure Secrets
+
+```bash
+# Create K8s secrets
+kubectl -n squadron create secret generic squadron-secrets \
+  --from-literal=ANTHROPIC_API_KEY=sk-ant-... \
+  --from-literal=DATABASE_URL=postgres://user:pass@host:5432/squadron \
+  --from-literal=GCS_SERVICE_ACCOUNT_KEY="$(cat gcs-sa-key.json)" \
+  --from-literal=KMS_KEY_URI=gcp-kms://projects/your-project/locations/global/keyRings/squadron/cryptoKeys/master
+
+# Create per-agent secrets (bot tokens)
+kubectl -n squadron create secret generic agent-tokens \
+  --from-literal=ATLAS_BOT_TOKEN=xoxb-... \
+  --from-literal=ATLAS_APP_TOKEN=xapp-... \
+  --from-literal=SCRIBE_BOT_TOKEN=xoxb-... \
+  --from-literal=SCRIBE_APP_TOKEN=xapp-... \
+  --from-literal=SENTINEL_BOT_TOKEN=xoxb-... \
+  --from-literal=SENTINEL_APP_TOKEN=xapp-...
+```
+
+### Step 4: Configure Squadron
+
+Edit `config/squadron.yml`:
+
+```yaml
+# config/squadron.yml
+database:
+  url: ${DATABASE_URL}
+  pool_size: 20
+
+gcs:
+  bucket: your-org-squadron-results
+  default_expiry: 24h
+  max_expiry: 168h  # 7 days
+
+kms:
+  provider: gcp-kms   # or: vault, local
+  key_uri: ${KMS_KEY_URI}
+
+slack:
+  mode: socket         # socket mode, no public URL needed
+  channels:            # channels where Squadron is active
+    - C0123ABCDEF      # #ops-agent
+    - C0456GHIJKL      # #data-team
+
+onboarding:
+  enabled: true
+  default_role: business
+  available_roles: [pm, engineering, business]
+
+oauth:
+  google:
+    client_id: ${GOOGLE_CLIENT_ID}
+    client_secret: ${GOOGLE_CLIENT_SECRET}
+    redirect_uri: https://squadron.your-org.com/oauth/google/callback
+    scopes:
+      - https://www.googleapis.com/auth/documents
+      - https://www.googleapis.com/auth/drive.file
+  confluence:
+    client_id: ${CONFLUENCE_CLIENT_ID}
+    client_secret: ${CONFLUENCE_CLIENT_SECRET}
+    redirect_uri: https://squadron.your-org.com/oauth/confluence/callback
+    scopes:
+      - read:confluence-content.all
+      - write:confluence-content
+```
+
+Edit `config/agents.yml` with your agent personas (see Section 3 of this doc).
+
+Edit `config/tool-policies.yml` with your approval tiers and guardrails (see Section 2 of this doc).
+
+### Step 5: Run Database Migrations
+
+```bash
+# Locally (for verification)
+npm run db:migrate -- --database-url=$DATABASE_URL
+
+# Or via K8s job
+kubectl -n squadron apply -f k8s/migration-job.yml
+kubectl -n squadron wait --for=condition=complete job/squadron-migrate --timeout=60s
+```
+
+### Step 6: Deploy to Kubernetes
+
+```bash
+# Apply the deployment manifests
+kubectl -n squadron apply -f k8s/deployment.yml
+kubectl -n squadron apply -f k8s/service.yml
+
+# Verify pods are running
+kubectl -n squadron get pods -w
+
+# Check logs
+kubectl -n squadron logs -f deployment/squadron-service
+```
+
+### Step 7: Verify Installation
+
+```bash
+# Health check
+kubectl -n squadron port-forward svc/squadron-service 3000:3000
+curl http://localhost:3000/health
+
+# Expected response:
+# {
+#   "status": "ok",
+#   "agents": { "atlas": "connected", "scribe": "connected", "sentinel": "connected" },
+#   "database": "connected",
+#   "gcs": "connected"
+# }
+```
+
+Then go to the configured Slack channel and `@mention` any agent. It should respond in a thread.
+
+### Step 8: Add Agents to Channels
+
+Invite each agent bot to the channels where Squadron should operate:
+
+```
+/invite @atlas
+/invite @scribe
+/invite @sentinel
+```
+
+### Upgrading
+
+```bash
+# Pull latest image
+kubectl -n squadron set image deployment/squadron-service \
+  squadron-core=ghcr.io/your-org/squadron:v1.2.0
+
+# Run any new migrations
+kubectl -n squadron apply -f k8s/migration-job.yml
+
+# Verify
+kubectl -n squadron rollout status deployment/squadron-service
+```
+
+### Troubleshooting
+
+| Symptom | Check |
+|---------|-------|
+| Agent not responding to mentions | Verify bot is in the channel, check Socket Mode connection in logs |
+| "Permission denied" on tool use | Check user role + tool_overrides in users table |
+| Approval request never resolves | Check checker_slack_id is set on the task, verify checker is in channel |
+| OAuth callback fails | Verify redirect_uri matches Slack/Google/Confluence app config |
+| Credential decryption fails | Verify KMS key URI and service account permissions |
+| GCS upload fails | Verify service account has objectAdmin on the bucket |
+
+---
+
+## 11. Build vs Buy Summary
 
 | Component | Approach |
 |---|---|
@@ -514,7 +979,7 @@ Reference: [claude-code-slack-bot](https://github.com/mpociot/claude-code-slack-
 
 ---
 
-## 10. Key References
+## 12. Key References
 
 - [Anthropic Claude Agent SDK (TypeScript)](https://github.com/anthropics/claude-agent-sdk-typescript)
 - [Claude Agent SDK MCP Docs](https://platform.claude.com/docs/en/agent-sdk/mcp)
