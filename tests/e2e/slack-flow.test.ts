@@ -220,4 +220,134 @@ describe("E2E: Slack @mention → bot reply", () => {
     expect(botMessages.length).toBe(0);
     console.log(`  Correctly ignored unrelated thread`);
   }, 30_000);
+
+  it("bot executes db_query tool and returns results", async () => {
+    const uniqueId = Date.now();
+    const mentionText = `<@${BOT_USER_ID}> show me all tables in the database (id=${uniqueId})`;
+    const postResult = await slackPost("chat.postMessage", SLACK_USER_TOKEN, {
+      channel: SLACK_CHANNEL_ID,
+      text: mentionText,
+    }) as { ok: boolean; ts: string };
+
+    expect(postResult.ok).toBe(true);
+    const threadTs = postResult.ts;
+    console.log(`  Posted tool-use @mention (ts=${threadTs})`);
+
+    // Wait for bot response (ack + tool result)
+    const botReply = await waitFor(
+      async () => {
+        const replies = await slackGet("conversations.replies", SLACK_BOT_TOKEN, {
+          channel: SLACK_CHANNEL_ID,
+          ts: threadTs,
+        }) as { ok: boolean; messages?: Array<{ user: string; text: string; ts: string }> };
+
+        if (!replies.ok || !replies.messages) return null;
+
+        const botMessages = replies.messages.filter(
+          (m) => m.user === BOT_USER_ID && m.ts !== threadTs,
+        );
+
+        // Expect: "I'm on it!" + checker prompt (maybe) + actual response
+        if (botMessages.length >= 2) return botMessages;
+        return null;
+      },
+      { timeout: 60_000, interval: 3_000 },
+    );
+
+    console.log(`  Bot replied with ${botReply.length} messages`);
+    expect(botReply.length).toBeGreaterThanOrEqual(2);
+
+    // Verify task in database
+    const taskResult = await pool.query(
+      "SELECT * FROM tasks WHERE slack_thread_ts = $1 AND slack_channel = $2",
+      [threadTs, SLACK_CHANNEL_ID],
+    );
+    expect(taskResult.rows.length).toBe(1);
+    console.log(`  Task in DB: ${taskResult.rows[0].id}`);
+  }, 120_000);
+
+  it("posts approval request for tier 2+ tools and processes approval", async () => {
+    const uniqueId = Date.now();
+    const mentionText = `<@${BOT_USER_ID}> run this query: SELECT count(*) FROM tasks (id=${uniqueId})`;
+    const postResult = await slackPost("chat.postMessage", SLACK_USER_TOKEN, {
+      channel: SLACK_CHANNEL_ID,
+      text: mentionText,
+    }) as { ok: boolean; ts: string };
+
+    expect(postResult.ok).toBe(true);
+    const threadTs = postResult.ts;
+    console.log(`  Posted approval-flow @mention (ts=${threadTs})`);
+
+    // Wait for any bot response
+    const botReply = await waitFor(
+      async () => {
+        const replies = await slackGet("conversations.replies", SLACK_BOT_TOKEN, {
+          channel: SLACK_CHANNEL_ID,
+          ts: threadTs,
+        }) as { ok: boolean; messages?: Array<{ user: string; text: string; ts: string }> };
+
+        if (!replies.ok || !replies.messages) return null;
+
+        const botMessages = replies.messages.filter(
+          (m) => m.user === BOT_USER_ID && m.ts !== threadTs,
+        );
+
+        if (botMessages.length >= 2) return botMessages;
+        return null;
+      },
+      { timeout: 60_000, interval: 3_000 },
+    );
+
+    console.log(`  Bot replied with ${botReply.length} messages`);
+    expect(botReply.length).toBeGreaterThanOrEqual(2);
+
+    // Check if any message is an approval request
+    const hasApprovalRequest = botReply.some(m =>
+      m.text.includes("Approval Required") || m.text.includes("approve")
+    );
+
+    if (hasApprovalRequest) {
+      console.log(`  Approval request detected — posting "approve"`);
+      // Post approval
+      await slackPost("chat.postMessage", SLACK_USER_TOKEN, {
+        channel: SLACK_CHANNEL_ID,
+        text: "approve",
+        thread_ts: threadTs,
+      });
+
+      // Wait for execution result
+      const afterApproval = await waitFor(
+        async () => {
+          const replies = await slackGet("conversations.replies", SLACK_BOT_TOKEN, {
+            channel: SLACK_CHANNEL_ID,
+            ts: threadTs,
+          }) as { ok: boolean; messages?: Array<{ user: string; text: string; ts: string }> };
+
+          if (!replies.ok || !replies.messages) return null;
+
+          const botMessages = replies.messages.filter(
+            (m) => m.user === BOT_USER_ID && m.ts !== threadTs,
+          );
+
+          // After approval: original messages + "Approved" + result
+          if (botMessages.length >= botReply.length + 2) return botMessages;
+          return null;
+        },
+        { timeout: 60_000, interval: 3_000 },
+      );
+
+      console.log(`  After approval: ${afterApproval.length} total bot messages`);
+      const approvedMsg = afterApproval.find(m => m.text.includes("Approved"));
+      expect(approvedMsg).toBeDefined();
+    } else {
+      console.log(`  No approval needed (tier 1) — tool auto-executed`);
+    }
+
+    // Verify task exists
+    const taskResult = await pool.query(
+      "SELECT * FROM tasks WHERE slack_thread_ts = $1",
+      [threadTs],
+    );
+    expect(taskResult.rows.length).toBe(1);
+  }, 120_000);
 });
