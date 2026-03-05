@@ -1,4 +1,4 @@
-import type { App, SayFn as BoltSayFn } from "@slack/bolt";
+import type { App } from "@slack/bolt";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type SayFn = (message: any) => Promise<unknown>;

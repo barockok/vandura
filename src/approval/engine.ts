@@ -15,10 +15,8 @@ export class ApprovalEngine {
     private policies: ToolPolicies,
   ) {}
 
-  classify(
-    toolName: string,
-    _toolInput: Record<string, unknown>,
-  ): ClassificationResult {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  classify(toolName: string, _toolInput: Record<string, unknown>): ClassificationResult {
     const policy = this.policies[toolName] ?? this.policies["_default"];
 
     if (!policy) {

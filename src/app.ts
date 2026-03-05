@@ -107,7 +107,7 @@ export async function createApp() {
   });
 
   // 8. Handle thread replies — continue conversation
-  gateway.onThreadMessage(async ({ user, text, channel, thread_ts, say }) => {
+  gateway.onThreadMessage(async ({ text, channel, thread_ts, say }) => {
     const task = await threadManager.findByThread(channel, thread_ts);
     if (!task) return;
 
