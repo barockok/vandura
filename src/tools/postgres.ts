@@ -11,6 +11,7 @@ export interface QueryResult {
 export interface ExplainResult {
   plan: string;
   estimatedRows: number;
+  error?: string;
 }
 
 export class PostgresTool {
@@ -36,11 +37,19 @@ export class PostgresTool {
   }
 
   async explain(sql: string): Promise<ExplainResult> {
-    const result = await this.pool.query(`EXPLAIN (FORMAT JSON) ${sql}`);
-    const planJson = result.rows[0]?.["QUERY PLAN"] ?? [];
-    const plan = JSON.stringify(planJson, null, 2);
-    const estimatedRows = planJson[0]?.Plan?.["Plan Rows"] ?? 0;
-    return { plan, estimatedRows };
+    try {
+      const result = await this.pool.query(`EXPLAIN (FORMAT JSON) ${sql}`);
+      const planJson = result.rows[0]?.["QUERY PLAN"] ?? [];
+      const plan = JSON.stringify(planJson, null, 2);
+      const estimatedRows = planJson[0]?.Plan?.["Plan Rows"] ?? 0;
+      return { plan, estimatedRows };
+    } catch (err) {
+      return {
+        plan: "",
+        estimatedRows: 0,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
   }
 
   definition(): ToolDefinition {
