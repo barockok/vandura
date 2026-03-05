@@ -9,6 +9,12 @@ function createMockApp() {
   } as unknown as App;
 }
 
+function getHandlerFor(mockApp: App, eventType: string, callIndex = 0) {
+  const calls = (mockApp.event as ReturnType<typeof vi.fn>).mock.calls
+    .filter((c: unknown[]) => c[0] === eventType);
+  return calls[callIndex]?.[1];
+}
+
 describe("SlackGateway", () => {
   let mockApp: App;
   let gateway: SlackGateway;
@@ -16,26 +22,28 @@ describe("SlackGateway", () => {
   beforeEach(() => {
     mockApp = createMockApp();
     gateway = new SlackGateway(mockApp);
+    gateway.setBotUserId("UBOT");
   });
 
   describe("onMention", () => {
-    it("registers an app_mention event handler", () => {
+    it("registers app_mention and message event handlers", () => {
       const handler = vi.fn();
       gateway.onMention(handler);
 
       expect(mockApp.event).toHaveBeenCalledWith("app_mention", expect.any(Function));
+      expect(mockApp.event).toHaveBeenCalledWith("message", expect.any(Function));
     });
 
-    it("invokes handler with correct payload on app_mention", async () => {
+    it("invokes handler on app_mention event", async () => {
       const handler = vi.fn();
       gateway.onMention(handler);
 
-      const registeredCallback = (mockApp.event as ReturnType<typeof vi.fn>).mock.calls[0][1];
+      const callback = getHandlerFor(mockApp, "app_mention");
       const say = vi.fn();
-      await registeredCallback({
+      await callback({
         event: {
           user: "U123",
-          text: "<@BOT> hello",
+          text: "<@UBOT> hello",
           channel: "C456",
           ts: "1234567890.123456",
         },
@@ -44,11 +52,75 @@ describe("SlackGateway", () => {
 
       expect(handler).toHaveBeenCalledWith({
         user: "U123",
-        text: "<@BOT> hello",
+        text: "<@UBOT> hello",
         channel: "C456",
         ts: "1234567890.123456",
         say,
       });
+    });
+
+    it("invokes handler on message event with bot mention (for bot-authored messages)", async () => {
+      const handler = vi.fn();
+      gateway.onMention(handler);
+
+      const callback = getHandlerFor(mockApp, "message");
+      const say = vi.fn();
+      await callback({
+        event: {
+          user: "U123",
+          text: "<@UBOT> hello from bot",
+          channel: "C456",
+          ts: "1234567890.123456",
+          bot_id: "BOTHER",
+        },
+        say,
+      });
+
+      expect(handler).toHaveBeenCalledWith({
+        user: "U123",
+        text: "<@UBOT> hello from bot",
+        channel: "C456",
+        ts: "1234567890.123456",
+        say,
+      });
+    });
+
+    it("ignores message events without bot mention", async () => {
+      const handler = vi.fn();
+      gateway.onMention(handler);
+
+      const callback = getHandlerFor(mockApp, "message");
+      const say = vi.fn();
+      await callback({
+        event: {
+          user: "U123",
+          text: "no mention here",
+          channel: "C456",
+          ts: "1234567890.123456",
+        },
+        say,
+      });
+
+      expect(handler).not.toHaveBeenCalled();
+    });
+
+    it("ignores message events from our own bot", async () => {
+      const handler = vi.fn();
+      gateway.onMention(handler);
+
+      const callback = getHandlerFor(mockApp, "message");
+      const say = vi.fn();
+      await callback({
+        event: {
+          user: "UBOT",
+          text: "<@UBOT> self mention",
+          channel: "C456",
+          ts: "1234567890.123456",
+        },
+        say,
+      });
+
+      expect(handler).not.toHaveBeenCalled();
     });
   });
 
@@ -60,13 +132,13 @@ describe("SlackGateway", () => {
       expect(mockApp.event).toHaveBeenCalledWith("message", expect.any(Function));
     });
 
-    it("invokes handler for thread replies with thread_ts", async () => {
+    it("invokes handler for thread replies", async () => {
       const handler = vi.fn();
       gateway.onThreadMessage(handler);
 
-      const registeredCallback = (mockApp.event as ReturnType<typeof vi.fn>).mock.calls[0][1];
+      const callback = getHandlerFor(mockApp, "message");
       const say = vi.fn();
-      await registeredCallback({
+      await callback({
         event: {
           user: "U123",
           text: "thread reply",
@@ -91,9 +163,9 @@ describe("SlackGateway", () => {
       const handler = vi.fn();
       gateway.onThreadMessage(handler);
 
-      const registeredCallback = (mockApp.event as ReturnType<typeof vi.fn>).mock.calls[0][1];
+      const callback = getHandlerFor(mockApp, "message");
       const say = vi.fn();
-      await registeredCallback({
+      await callback({
         event: {
           user: "U123",
           text: "top-level message",
@@ -106,25 +178,45 @@ describe("SlackGateway", () => {
       expect(handler).not.toHaveBeenCalled();
     });
 
-    it("ignores bot messages", async () => {
+    it("ignores thread messages from our own bot", async () => {
       const handler = vi.fn();
       gateway.onThreadMessage(handler);
 
-      const registeredCallback = (mockApp.event as ReturnType<typeof vi.fn>).mock.calls[0][1];
+      const callback = getHandlerFor(mockApp, "message");
       const say = vi.fn();
-      await registeredCallback({
+      await callback({
         event: {
-          user: "U123",
+          user: "UBOT",
           text: "bot reply",
           channel: "C456",
           ts: "1234567890.200000",
           thread_ts: "1234567890.100000",
-          bot_id: "B999",
         },
         say,
       });
 
       expect(handler).not.toHaveBeenCalled();
+    });
+
+    it("allows thread messages from other bots", async () => {
+      const handler = vi.fn();
+      gateway.onThreadMessage(handler);
+
+      const callback = getHandlerFor(mockApp, "message");
+      const say = vi.fn();
+      await callback({
+        event: {
+          user: "UOTHER",
+          text: "other bot reply",
+          channel: "C456",
+          ts: "1234567890.200000",
+          thread_ts: "1234567890.100000",
+          bot_id: "BOTHER",
+        },
+        say,
+      });
+
+      expect(handler).toHaveBeenCalled();
     });
   });
 
@@ -140,7 +232,9 @@ describe("SlackGateway", () => {
       const handler = vi.fn();
       gateway.onMemberJoined(handler);
 
-      const registeredCallback = (mockApp.event as ReturnType<typeof vi.fn>).mock.calls[0][1];
+      const registeredCallback = (mockApp.event as ReturnType<typeof vi.fn>).mock.calls.find(
+        (c: unknown[]) => c[0] === "member_joined_channel",
+      )![1];
       await registeredCallback({
         event: {
           user: "U123",

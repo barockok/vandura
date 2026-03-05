@@ -59,7 +59,16 @@ export async function createApp() {
     appToken: env.SLACK_APP_TOKEN,
     socketMode: true,
   });
+  slackApp.error(async (error) => {
+    console.error("[SLACK ERROR]", error);
+  });
   const gateway = new SlackGateway(slackApp);
+
+  // Resolve bot user ID for self-mention detection
+  const authResult = await slackApp.client.auth.test();
+  if (authResult.user_id) {
+    gateway.setBotUserId(authResult.user_id);
+  }
 
   // 6. Active agent runtimes (keyed by thread_ts)
   const activeAgents = new Map<string, AgentRuntime>();
