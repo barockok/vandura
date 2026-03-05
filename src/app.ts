@@ -11,6 +11,7 @@ import { AuditLogger } from "./audit/logger.js";
 import { AgentRuntime, type ChatOptions } from "./agent/runtime.js";
 import { ToolExecutor } from "./agent/tool-executor.js";
 import { CheckerFlow } from "./slack/checker-flow.js";
+import { TaskLifecycle } from "./slack/task-lifecycle.js";
 import { PostgresTool } from "./tools/postgres.js";
 import { StorageService } from "./storage/s3.js";
 import type { ToolResult } from "./tools/types.js";
@@ -80,6 +81,13 @@ export async function createApp() {
   const activeExecutors = new Map<string, ToolExecutor>();
   const pendingApprovals = new Map<string, PendingApproval>();
   const pendingCheckerNomination = new Set<string>();
+
+  function formatDuration(start: Date, end: Date): string {
+    const ms = end.getTime() - start.getTime();
+    const minutes = Math.floor(ms / 60000);
+    const seconds = Math.floor((ms % 60000) / 1000);
+    return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+  }
 
   // Helper: run agent chat with tools and handle approval flow
   async function runAgentChat(
@@ -200,6 +208,30 @@ export async function createApp() {
   gateway.onThreadMessage(async ({ user, text, channel, thread_ts, say }) => {
     const task = await threadManager.findByThread(channel, thread_ts);
     if (!task) return;
+
+    // Check if this is a task close command
+    const taskLifecycle = new TaskLifecycle();
+    const closeCommand = taskLifecycle.parseCommand(text);
+    if (closeCommand) {
+      await threadManager.closeTask(task.id, closeCommand);
+      activeAgents.delete(thread_ts);
+      activeExecutors.delete(thread_ts);
+      pendingApprovals.delete(thread_ts);
+      pendingCheckerNomination.delete(thread_ts);
+
+      const messages = await threadManager.getMessages(task.id);
+      const toolCallCount = messages.filter(m => m.metadata?.toolCalls).length;
+      const approvalCount = (await approvalEngine.getPendingByTask(task.id)).length;
+      const duration = formatDuration(task.createdAt, new Date());
+
+      const summary = taskLifecycle.buildSummary({
+        taskId: task.id, status: closeCommand,
+        messageCount: messages.length, toolCallCount,
+        approvalCount, duration,
+      });
+      await say({ text: summary, thread_ts });
+      return;
+    }
 
     // Check if this is a checker nomination reply
     if (pendingCheckerNomination.has(thread_ts)) {
