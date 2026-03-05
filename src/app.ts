@@ -14,6 +14,7 @@ import { CheckerFlow } from "./slack/checker-flow.js";
 import { TaskLifecycle } from "./slack/task-lifecycle.js";
 import { PostgresTool } from "./tools/postgres.js";
 import { StorageService } from "./storage/s3.js";
+import { buildHealthCheck, startHealthServer } from "./health.js";
 import type { ToolResult } from "./tools/types.js";
 import path from "node:path";
 
@@ -324,9 +325,14 @@ export async function createApp() {
     }
   });
 
+  const healthCheck = buildHealthCheck({ pool, storage });
+
   return {
-    start: () => gateway.start(),
+    start: async () => {
+      await gateway.start();
+      startHealthServer(healthCheck);
+    },
     pool, toolDbPool, gateway, threadManager,
-    approvalEngine, auditLogger, storage,
+    approvalEngine, auditLogger, storage, healthCheck,
   };
 }
