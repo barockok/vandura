@@ -1,0 +1,56 @@
+{
+  "name": "squadron",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx --watch src/index.ts",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "docker compose -f docker-compose.test.yml up --build --abort-on-container-exit",
+    "lint": "eslint src/",
+    "typecheck": "tsc --noEmit",
+    "db:migrate": "tsx src/db/migrate.ts"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/barockok/vandura.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/barockok/vandura/issues"
+  },
+  "homepage": "https://github.com/barockok/vandura#readme",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.78.0",
+    "@aws-sdk/client-s3": "^3.1002.0",
+    "@aws-sdk/s3-request-presigner": "^3.1002.0",
+    "@slack/bolt": "^4.6.0",
+    "dotenv": "^17.3.1",
+    "pg": "^8.20.0",
+    "uuid": "^13.0.0",
+    "yaml": "^2.8.2",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@testcontainers/postgresql": "^11.12.0",
+    "@types/node": "^25.3.3",
+    "@types/pg": "^8.18.0",
+    "@types/uuid": "^10.0.0",
+    "eslint": "^10.0.2",
+    "testcontainers": "^11.12.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.56.1",
+    "vitest": "^4.0.18"
+  }
+}
