@@ -1,6 +1,7 @@
-import type { App } from "@slack/bolt";
+import type { App, SayFn as BoltSayFn } from "@slack/bolt";
 
-type SayFn = (message: string | Record<string, unknown>) => Promise<unknown>;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type SayFn = (message: any) => Promise<unknown>;
 
 export interface MentionPayload {
   user: string;
@@ -29,19 +30,21 @@ export class SlackGateway {
 
   onMention(handler: (payload: MentionPayload) => void | Promise<void>): void {
     this.app.event("app_mention", async ({ event, say }) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const e = event as any;
       await handler({
-        user: event.user,
-        text: event.text,
-        channel: event.channel,
-        ts: event.ts,
-        say,
+        user: e.user ?? "",
+        text: e.text ?? "",
+        channel: e.channel,
+        ts: e.ts,
+        say: say as SayFn,
       });
     });
   }
 
   onThreadMessage(handler: (payload: ThreadMessagePayload) => void | Promise<void>): void {
     this.app.event("message", async ({ event, say }) => {
-      const msg = event as Record<string, unknown>;
+      const msg = event as unknown as Record<string, unknown>;
 
       // Only handle thread replies (must have thread_ts)
       if (!msg.thread_ts) return;
@@ -55,7 +58,7 @@ export class SlackGateway {
         channel: msg.channel as string,
         ts: msg.ts as string,
         thread_ts: msg.thread_ts as string,
-        say,
+        say: say as SayFn,
       });
     });
   }
