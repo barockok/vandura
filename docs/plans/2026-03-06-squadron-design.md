@@ -1,8 +1,8 @@
-# Squadron — AI Agent Swarm for Slack
+# Vandura — AI Agent Swarm for Slack
 
 ## Overview
 
-Squadron is a Slack-integrated AI agent system that gives non-technical team members (PMs, business, ops) access to databases, service endpoints, documentation platforms, and more — through natural conversation. It operates like a "remote Claude Code" triggered via Slack, with built-in governance: tiered autonomy, maker-checker approval workflows, and full audit trails.
+Vandura is a Slack-integrated AI agent system that gives non-technical team members (PMs, business, ops) access to databases, service endpoints, documentation platforms, and more — through natural conversation. It operates like a "remote Claude Code" triggered via Slack, with built-in governance: tiered autonomy, maker-checker approval workflows, and full audit trails.
 
 Built on the **Anthropic Claude Agent SDK** with **MCP (Model Context Protocol)** servers for integrations. Any off-the-shelf MCP server can be plugged in and wrapped with configurable approval policies.
 
@@ -10,7 +10,7 @@ Built on the **Anthropic Claude Agent SDK** with **MCP (Model Context Protocol)*
 
 - **Transparency** — all interactions happen in channels (private or public), never DMs. Everyone in the channel can see what the agent is doing.
 - **Maker-checker governance** — high-risk actions require a second person to approve before execution.
-- **MCP-native** — integrations are standard MCP servers. Squadron wraps them with approval logic, not the other way around.
+- **MCP-native** — integrations are standard MCP servers. Vandura wraps them with approval logic, not the other way around.
 - **Per-user identity** — where applicable, the agent acts on behalf of the user using their own OAuth tokens. Shared resources use admin-managed service accounts.
 - **Security-first** — all credentials encrypted at rest with envelope encryption via external KMS.
 
@@ -30,7 +30,7 @@ Built on the **Anthropic Claude Agent SDK** with **MCP (Model Context Protocol)*
 
 ### Flow
 
-1. User A `@mentions` an agent in a channel where Squadron is deployed
+1. User A `@mentions` an agent in a channel where Vandura is deployed
 2. Agent creates a **new thread** and replies there:
    - Acknowledges the request
    - Logs what it's about to do (transparency)
@@ -135,7 +135,7 @@ MCP servers are completely decoupled from the approval layer. Add a new communit
 
 ### Concept
 
-Instead of one generic bot, Squadron provides a **pool of named agents**, each with its own Slack bot handle, personality, and tool set. They are independent workers — one agent handles one task at a time. If an agent is busy, users pick a different one.
+Instead of one generic bot, Vandura provides a **pool of named agents**, each with its own Slack bot handle, personality, and tool set. They are independent workers — one agent handles one task at a time. If an agent is busy, users pick a different one.
 
 ### Agent Configuration
 
@@ -191,17 +191,17 @@ agents:
 - Each agent is a **separate Slack bot user** with its own `@handle`
 - Users `@mention` the agent they want: `@atlas how many active users?`
 - If an agent is busy, it responds with its status and suggests alternatives
-- All agents share the same Squadron backend — the bot token determines which config to load
+- All agents share the same Vandura backend — the bot token determines which config to load
 
 ---
 
 ## 4. System Architecture
 
 ```
-SLACK (any channel Squadron is deployed to)
+SLACK (any channel Vandura is deployed to)
   |
   v
-Squadron Service (K8s)
+Vandura Service (K8s)
   |
   +-- Slack Gateway (Bolt SDK, Socket Mode)
   |     Event listener: app_mention, message (in threads)
@@ -227,7 +227,7 @@ Squadron Service (K8s)
   |     System prompt includes: role, allowed tools, guardrails
   |
   +-- Permission & Auth Layer
-  |     Slack user to Squadron user mapping
+  |     Slack user to Vandura user mapping
   |     Role definitions (what tools each role can access)
   |     Per-user tool allowlists
   |     Checker routing rules
@@ -255,9 +255,9 @@ Squadron Service (K8s)
 ### Deployment (K8s)
 
 ```
-squadron-namespace/
-  +-- squadron-service (Deployment)
-  |     container: squadron-core (Bolt + Agent SDK + Approval Engine)
+vandura-namespace/
+  +-- vandura-service (Deployment)
+  |     container: vandura-core (Bolt + Agent SDK + Approval Engine)
   +-- mcp-db (Deployment)
   +-- mcp-confluence (Deployment)
   +-- mcp-gdocs (Deployment)
@@ -273,8 +273,8 @@ squadron-namespace/
 
 ### Onboarding Flow
 
-1. User joins a channel where Squadron is deployed
-2. Squadron detects `member_joined_channel` event
+1. User joins a channel where Vandura is deployed
+2. Vandura detects `member_joined_channel` event
 3. Agent DMs the user to set up:
    - Role selection (PM, Engineering, Business, Other)
    - Per-user OAuth linking (Google, Confluence, Jira) — agent acts on their behalf
@@ -360,7 +360,7 @@ Agent uploads to GCS when results exceed a configurable threshold (e.g., >50 row
 
 1. Agent gets large results
 2. Calls `mcp-gcs.upload` with content, filename, content type, expiry
-3. MCP server uploads to `gs://squadron-results/{task_id}/{filename}`
+3. MCP server uploads to `gs://vandura-results/{task_id}/{filename}`
 4. Returns signed URL with expiry
 5. Agent posts preview (first N rows) + download link in the thread
 
@@ -526,7 +526,7 @@ let pgContainer: StartedPostgreSqlContainer;
 
 beforeAll(async () => {
   pgContainer = await new PostgreSqlContainer("postgres:16-alpine")
-    .withDatabase("squadron_test")
+    .withDatabase("vandura_test")
     .start();
 
   // Run migrations against the test DB
@@ -550,13 +550,13 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_DB: squadron_test
-      POSTGRES_USER: squadron
+      POSTGRES_DB: vandura_test
+      POSTGRES_USER: vandura
       POSTGRES_PASSWORD: test
     ports:
       - "5433:5432"
 
-  squadron:
+  vandura:
     build:
       context: .
       dockerfile: Dockerfile
@@ -565,7 +565,7 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgres://squadron:test@postgres:5432/squadron_test
+      DATABASE_URL: postgres://vandura:test@postgres:5432/vandura_test
       KMS_PROVIDER: local          # local file-based KMS for testing
       SLACK_MODE: test_harness     # intercepts Slack API calls
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
@@ -576,9 +576,9 @@ services:
     build:
       context: ./tests/slack-harness
     depends_on:
-      - squadron
+      - vandura
     environment:
-      SQUADRON_URL: http://squadron:3000
+      SQUADRON_URL: http://vandura:3000
     ports:
       - "3001:3001"               # test API to simulate Slack events
 ```
@@ -587,7 +587,7 @@ services:
 
 A lightweight service that simulates Slack's event API and captures outgoing messages:
 
-- Sends `app_mention` events to Squadron
+- Sends `app_mention` events to Vandura
 - Captures thread replies, approval request messages
 - Simulates user reactions/replies for approval flows
 - Asserts message content, ordering, and thread structure
@@ -739,11 +739,11 @@ CMD ["npm", "test"]
 # Production stage
 FROM node:22-alpine AS production
 WORKDIR /app
-RUN addgroup -S squadron && adduser -S squadron -G squadron
+RUN addgroup -S vandura && adduser -S vandura -G vandura
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/package.json ./
-USER squadron
+USER vandura
 EXPOSE 3000
 CMD ["node", "dist/index.js"]
 ```
@@ -777,11 +777,11 @@ Each agent needs its own Slack app. For each agent (e.g., Atlas, Scribe, Sentine
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-org/squadron.git
-cd squadron
+git clone https://github.com/your-org/vandura.git
+cd vandura
 
 # Copy example config
-cp config/squadron.example.yml config/squadron.yml
+cp config/vandura.example.yml config/vandura.yml
 cp config/tool-policies.example.yml config/tool-policies.yml
 cp config/agents.example.yml config/agents.yml
 ```
@@ -791,7 +791,7 @@ cp config/agents.example.yml config/agents.yml
 ```bash
 # If using managed Postgres, note the connection string.
 # If self-hosted on K8s:
-kubectl create namespace squadron
+kubectl create namespace vandura
 kubectl apply -f k8s/postgres-statefulset.yml
 ```
 
@@ -799,16 +799,16 @@ kubectl apply -f k8s/postgres-statefulset.yml
 
 ```bash
 # Create the results bucket
-gsutil mb -l US gs://your-org-squadron-results
+gsutil mb -l US gs://your-org-vandura-results
 
 # Set lifecycle policy (auto-delete after 7 days)
-gsutil lifecycle set k8s/gcs-lifecycle.json gs://your-org-squadron-results
+gsutil lifecycle set k8s/gcs-lifecycle.json gs://your-org-vandura-results
 
 # Create a service account for GCS access
-gcloud iam service-accounts create squadron-gcs \
-  --display-name="Squadron GCS Service Account"
-gcloud storage buckets add-iam-policy-binding gs://your-org-squadron-results \
-  --member="serviceAccount:squadron-gcs@your-project.iam.gserviceaccount.com" \
+gcloud iam service-accounts create vandura-gcs \
+  --display-name="Vandura GCS Service Account"
+gcloud storage buckets add-iam-policy-binding gs://your-org-vandura-results \
+  --member="serviceAccount:vandura-gcs@your-project.iam.gserviceaccount.com" \
   --role="roles/storage.objectAdmin"
 ```
 
@@ -816,14 +816,14 @@ gcloud storage buckets add-iam-policy-binding gs://your-org-squadron-results \
 
 ```bash
 # Create K8s secrets
-kubectl -n squadron create secret generic squadron-secrets \
+kubectl -n vandura create secret generic vandura-secrets \
   --from-literal=ANTHROPIC_API_KEY=sk-ant-... \
-  --from-literal=DATABASE_URL=postgres://user:pass@host:5432/squadron \
+  --from-literal=DATABASE_URL=postgres://user:pass@host:5432/vandura \
   --from-literal=GCS_SERVICE_ACCOUNT_KEY="$(cat gcs-sa-key.json)" \
-  --from-literal=KMS_KEY_URI=gcp-kms://projects/your-project/locations/global/keyRings/squadron/cryptoKeys/master
+  --from-literal=KMS_KEY_URI=gcp-kms://projects/your-project/locations/global/keyRings/vandura/cryptoKeys/master
 
 # Create per-agent secrets (bot tokens)
-kubectl -n squadron create secret generic agent-tokens \
+kubectl -n vandura create secret generic agent-tokens \
   --from-literal=ATLAS_BOT_TOKEN=xoxb-... \
   --from-literal=ATLAS_APP_TOKEN=xapp-... \
   --from-literal=SCRIBE_BOT_TOKEN=xoxb-... \
@@ -832,18 +832,18 @@ kubectl -n squadron create secret generic agent-tokens \
   --from-literal=SENTINEL_APP_TOKEN=xapp-...
 ```
 
-### Step 4: Configure Squadron
+### Step 4: Configure Vandura
 
-Edit `config/squadron.yml`:
+Edit `config/vandura.yml`:
 
 ```yaml
-# config/squadron.yml
+# config/vandura.yml
 database:
   url: ${DATABASE_URL}
   pool_size: 20
 
 gcs:
-  bucket: your-org-squadron-results
+  bucket: your-org-vandura-results
   default_expiry: 24h
   max_expiry: 168h  # 7 days
 
@@ -853,7 +853,7 @@ kms:
 
 slack:
   mode: socket         # socket mode, no public URL needed
-  channels:            # channels where Squadron is active
+  channels:            # channels where Vandura is active
     - C0123ABCDEF      # #ops-agent
     - C0456GHIJKL      # #data-team
 
@@ -866,14 +866,14 @@ oauth:
   google:
     client_id: ${GOOGLE_CLIENT_ID}
     client_secret: ${GOOGLE_CLIENT_SECRET}
-    redirect_uri: https://squadron.your-org.com/oauth/google/callback
+    redirect_uri: https://vandura.your-org.com/oauth/google/callback
     scopes:
       - https://www.googleapis.com/auth/documents
       - https://www.googleapis.com/auth/drive.file
   confluence:
     client_id: ${CONFLUENCE_CLIENT_ID}
     client_secret: ${CONFLUENCE_CLIENT_SECRET}
-    redirect_uri: https://squadron.your-org.com/oauth/confluence/callback
+    redirect_uri: https://vandura.your-org.com/oauth/confluence/callback
     scopes:
       - read:confluence-content.all
       - write:confluence-content
@@ -890,29 +890,29 @@ Edit `config/tool-policies.yml` with your approval tiers and guardrails (see Sec
 npm run db:migrate -- --database-url=$DATABASE_URL
 
 # Or via K8s job
-kubectl -n squadron apply -f k8s/migration-job.yml
-kubectl -n squadron wait --for=condition=complete job/squadron-migrate --timeout=60s
+kubectl -n vandura apply -f k8s/migration-job.yml
+kubectl -n vandura wait --for=condition=complete job/vandura-migrate --timeout=60s
 ```
 
 ### Step 6: Deploy to Kubernetes
 
 ```bash
 # Apply the deployment manifests
-kubectl -n squadron apply -f k8s/deployment.yml
-kubectl -n squadron apply -f k8s/service.yml
+kubectl -n vandura apply -f k8s/deployment.yml
+kubectl -n vandura apply -f k8s/service.yml
 
 # Verify pods are running
-kubectl -n squadron get pods -w
+kubectl -n vandura get pods -w
 
 # Check logs
-kubectl -n squadron logs -f deployment/squadron-service
+kubectl -n vandura logs -f deployment/vandura-service
 ```
 
 ### Step 7: Verify Installation
 
 ```bash
 # Health check
-kubectl -n squadron port-forward svc/squadron-service 3000:3000
+kubectl -n vandura port-forward svc/vandura-service 3000:3000
 curl http://localhost:3000/health
 
 # Expected response:
@@ -928,7 +928,7 @@ Then go to the configured Slack channel and `@mention` any agent. It should resp
 
 ### Step 8: Add Agents to Channels
 
-Invite each agent bot to the channels where Squadron should operate:
+Invite each agent bot to the channels where Vandura should operate:
 
 ```
 /invite @atlas
@@ -940,14 +940,14 @@ Invite each agent bot to the channels where Squadron should operate:
 
 ```bash
 # Pull latest image
-kubectl -n squadron set image deployment/squadron-service \
-  squadron-core=ghcr.io/your-org/squadron:v1.2.0
+kubectl -n vandura set image deployment/vandura-service \
+  vandura-core=ghcr.io/your-org/vandura:v1.2.0
 
 # Run any new migrations
-kubectl -n squadron apply -f k8s/migration-job.yml
+kubectl -n vandura apply -f k8s/migration-job.yml
 
 # Verify
-kubectl -n squadron rollout status deployment/squadron-service
+kubectl -n vandura rollout status deployment/vandura-service
 ```
 
 ### Troubleshooting
