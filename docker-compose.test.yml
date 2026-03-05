@@ -1,0 +1,55 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: vandura_test
+      POSTGRES_USER: vandura
+      POSTGRES_PASSWORD: vandura
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vandura"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: vandura
+      MINIO_ROOT_PASSWORD: vandura123
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_started
+    entrypoint: >
+      /bin/sh -c "
+      sleep 2 &&
+      mc alias set local http://minio:9000 vandura vandura123 &&
+      mc mb local/vandura-results --ignore-existing
+      "
+
+  vandura:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: test
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgres://vandura:vandura@postgres:5432/vandura_test
+      KMS_PROVIDER: local
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY: vandura
+      S3_SECRET_KEY: vandura123
+      S3_BUCKET: vandura-results
+      S3_REGION: us-east-1
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL}
+      SLACK_APP_TOKEN: ${SLACK_APP_TOKEN}
+      SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN}
+      SLACK_CHANNEL_ID: ${SLACK_CHANNEL_ID}
