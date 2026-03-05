@@ -10,6 +10,7 @@ import { ApprovalEngine } from "./approval/engine.js";
 import { AuditLogger } from "./audit/logger.js";
 import { AgentRuntime, type ChatOptions } from "./agent/runtime.js";
 import { ToolExecutor } from "./agent/tool-executor.js";
+import { CheckerFlow } from "./slack/checker-flow.js";
 import { PostgresTool } from "./tools/postgres.js";
 import { StorageService } from "./storage/s3.js";
 import type { ToolResult } from "./tools/types.js";
@@ -78,6 +79,7 @@ export async function createApp() {
   const activeAgents = new Map<string, AgentRuntime>();
   const activeExecutors = new Map<string, ToolExecutor>();
   const pendingApprovals = new Map<string, PendingApproval>();
+  const pendingCheckerNomination = new Set<string>();
 
   // Helper: run agent chat with tools and handle approval flow
   async function runAgentChat(
@@ -176,6 +178,13 @@ export async function createApp() {
     });
     activeExecutors.set(ts, executor);
 
+    const hasHighTierTools = Object.values(toolPolicies).some(p => p.tier === 3);
+    if (hasHighTierTools) {
+      const checkerFlow = new CheckerFlow();
+      await say({ text: checkerFlow.buildNominationPrompt(), thread_ts: ts });
+      pendingCheckerNomination.add(ts);
+    }
+
     const cleanText = text.replace(/<@[^>]+>/g, "").trim();
     await threadManager.addMessage(task.id, "user", cleanText, null);
 
@@ -191,6 +200,22 @@ export async function createApp() {
   gateway.onThreadMessage(async ({ user, text, channel, thread_ts, say }) => {
     const task = await threadManager.findByThread(channel, thread_ts);
     if (!task) return;
+
+    // Check if this is a checker nomination reply
+    if (pendingCheckerNomination.has(thread_ts)) {
+      const checkerFlow = new CheckerFlow();
+      const checkerId = checkerFlow.extractCheckerFromReply(text);
+      if (checkerId) {
+        pendingCheckerNomination.delete(thread_ts);
+        if (checkerId !== "skip") {
+          await threadManager.setChecker(task.id, checkerId);
+          await say({ text: `<@${checkerId}> set as checker for this task.`, thread_ts });
+        } else {
+          await say({ text: "No checker assigned. Tier 3 actions will require any channel member to approve.", thread_ts });
+        }
+        return;
+      }
+    }
 
     // Check if this is an approval decision
     const pending = pendingApprovals.get(thread_ts);
