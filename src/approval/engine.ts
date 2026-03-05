@@ -56,6 +56,22 @@ export class ApprovalEngine {
     }
   }
 
+  classifyDynamic(
+    toolName: string,
+    metrics: { estimatedRows: number; hasSeqScan: boolean },
+  ): ClassificationResult {
+    const policy = this.policies[toolName] ?? this.policies["_default"];
+    const guardrails = policy?.guardrails ?? null;
+
+    if (metrics.estimatedRows > 50_000 || (metrics.estimatedRows > 10_000 && metrics.hasSeqScan)) {
+      return { tier: 3, requiresApproval: true, approver: "checker", guardrails };
+    }
+    if (metrics.estimatedRows > 1000 || metrics.hasSeqScan) {
+      return { tier: 2, requiresApproval: true, approver: "initiator", guardrails };
+    }
+    return { tier: 1, requiresApproval: false, approver: "none", guardrails };
+  }
+
   async requestApproval(
     taskId: string,
     toolName: string,
