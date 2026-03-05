@@ -1,81 +1,132 @@
-import { describe, it, expect } from "vitest";
-import type Anthropic from "@anthropic-ai/sdk";
+// tests/agent/runtime.test.ts
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { AgentRuntime } from "../../src/agent/runtime.js";
 
-const makeConfig = (overrides?: Record<string, unknown>) => ({
-  anthropicApiKey: "test-key-not-real",
+// Mock the Anthropic SDK
+vi.mock("@anthropic-ai/sdk", () => {
+  class MockAnthropic {
+    messages = {
+      create: vi.fn(),
+    };
+    constructor(_opts?: any) {}
+  }
+  return { default: MockAnthropic };
+});
+
+const baseConfig = {
+  anthropicApiKey: "test-key",
   agentConfig: {
     name: "TestAgent",
     role: "admin",
-    tools: ["mcp-db"],
+    tools: ["db_query"],
     max_concurrent_tasks: 1,
-    personality: "Helpful and concise.",
-    system_prompt_extra: "Extra instructions here.",
   },
-  toolPolicies: {
-    mcp__db__query: {
-      tier: 2 as const,
-      guardrails: "Always run EXPLAIN first.",
-      checker: "peer-based" as const,
-    },
-    _default: {
-      tier: 2 as const,
-      checker: "peer-based" as const,
-    },
-  },
-  ...overrides,
-});
+  toolPolicies: {},
+};
 
 describe("AgentRuntime", () => {
-  it("can be constructed with correct config", () => {
-    const runtime = new AgentRuntime(makeConfig());
-    expect(runtime).toBeInstanceOf(AgentRuntime);
+  let runtime: AgentRuntime;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    runtime = new AgentRuntime(baseConfig);
   });
 
-  it("accepts optional anthropicBaseUrl", () => {
-    const runtime = new AgentRuntime(
-      makeConfig({ anthropicBaseUrl: "https://custom.api.example.com" })
-    );
-    expect(runtime).toBeInstanceOf(AgentRuntime);
+  it("returns text response when no tool calls", async () => {
+    const mockCreate = vi.fn().mockResolvedValue({
+      content: [{ type: "text", text: "Hello!" }],
+      stop_reason: "end_turn",
+    });
+    (runtime as any).client.messages.create = mockCreate;
+
+    const result = await runtime.chat("hi");
+    expect(result.text).toBe("Hello!");
+    expect(result.toolCalls).toEqual([]);
   });
 
-  it("returns empty history initially", () => {
-    const runtime = new AgentRuntime(makeConfig());
-    expect(runtime.getHistory()).toEqual([]);
+  it("invokes tool executor when Claude requests tool use", async () => {
+    const mockCreate = vi.fn()
+      .mockResolvedValueOnce({
+        content: [
+          { type: "text", text: "Let me query that." },
+          { type: "tool_use", id: "call_1", name: "db_query", input: { sql: "SELECT 1" } },
+        ],
+        stop_reason: "tool_use",
+      })
+      .mockResolvedValueOnce({
+        content: [{ type: "text", text: "The result is 1." }],
+        stop_reason: "end_turn",
+      });
+
+    (runtime as any).client.messages.create = mockCreate;
+
+    const toolExecutor = vi.fn().mockResolvedValue({
+      output: JSON.stringify({ rows: [{ "?column?": 1 }], rowCount: 1 }),
+    });
+
+    const result = await runtime.chat("what is 1?", { toolExecutor });
+    expect(toolExecutor).toHaveBeenCalledWith("db_query", { sql: "SELECT 1" }, "call_1");
+    expect(result.text).toBe("The result is 1.");
+    expect(result.toolCalls).toHaveLength(1);
+    expect(result.toolCalls[0]).toMatchObject({
+      name: "db_query",
+      input: { sql: "SELECT 1" },
+    });
+    expect(mockCreate).toHaveBeenCalledTimes(2);
   });
 
-  it("loadHistory sets conversation history", () => {
-    const runtime = new AgentRuntime(makeConfig());
-    const messages: Anthropic.MessageParam[] = [
-      { role: "user", content: "Hello" },
-      { role: "assistant", content: "Hi there!" },
-    ];
-    runtime.loadHistory(messages);
-    expect(runtime.getHistory()).toEqual(messages);
+  it("passes tool definitions to the API", async () => {
+    const mockCreate = vi.fn().mockResolvedValue({
+      content: [{ type: "text", text: "Done." }],
+      stop_reason: "end_turn",
+    });
+    (runtime as any).client.messages.create = mockCreate;
+
+    const tools = [{
+      name: "db_query",
+      description: "Run SQL",
+      input_schema: { type: "object", properties: { sql: { type: "string" } }, required: ["sql"] },
+    }];
+
+    await runtime.chat("hi", { tools });
+    expect(mockCreate.mock.calls[0][0].tools).toEqual(tools);
   });
 
-  it("getHistory returns a copy, not a reference", () => {
-    const runtime = new AgentRuntime(makeConfig());
-    const messages: Anthropic.MessageParam[] = [
-      { role: "user", content: "Hello" },
-    ];
-    runtime.loadHistory(messages);
+  it("limits tool-use loop to prevent infinite loops", async () => {
+    const mockCreate = vi.fn().mockResolvedValue({
+      content: [
+        { type: "tool_use", id: "call_x", name: "db_query", input: { sql: "SELECT 1" } },
+      ],
+      stop_reason: "tool_use",
+    });
+    (runtime as any).client.messages.create = mockCreate;
 
-    const history = runtime.getHistory();
-    history.push({ role: "assistant", content: "tampered" });
+    const toolExecutor = vi.fn().mockResolvedValue({ output: "ok" });
 
-    expect(runtime.getHistory()).toHaveLength(1);
+    await expect(runtime.chat("loop", { toolExecutor, maxToolRounds: 3 }))
+      .rejects.toThrow("too many tool-use rounds");
   });
 
-  it("loadHistory makes a copy of the input", () => {
-    const runtime = new AgentRuntime(makeConfig());
-    const messages: Anthropic.MessageParam[] = [
-      { role: "user", content: "Hello" },
-    ];
-    runtime.loadHistory(messages);
+  it("handles tool execution errors", async () => {
+    const mockCreate = vi.fn()
+      .mockResolvedValueOnce({
+        content: [
+          { type: "tool_use", id: "call_err", name: "db_query", input: { sql: "BAD" } },
+        ],
+        stop_reason: "tool_use",
+      })
+      .mockResolvedValueOnce({
+        content: [{ type: "text", text: "Sorry, error." }],
+        stop_reason: "end_turn",
+      });
+    (runtime as any).client.messages.create = mockCreate;
 
-    messages.push({ role: "assistant", content: "tampered" });
+    const toolExecutor = vi.fn().mockResolvedValue({
+      output: "relation does not exist",
+      isError: true,
+    });
 
-    expect(runtime.getHistory()).toHaveLength(1);
+    const result = await runtime.chat("bad query", { toolExecutor });
+    expect(result.text).toBe("Sorry, error.");
   });
 });

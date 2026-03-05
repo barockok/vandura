@@ -106,9 +106,9 @@ export async function createApp() {
     await threadManager.addMessage(task.id, "user", cleanText, null);
 
     try {
-      const response = await runtime.chat(cleanText);
-      await threadManager.addMessage(task.id, "assistant", response, null);
-      await say({ text: response, thread_ts: ts });
+      const result = await runtime.chat(cleanText);
+      await threadManager.addMessage(task.id, "assistant", result.text, null);
+      await say({ text: result.text, thread_ts: ts });
     } catch (err) {
       const errorMsg = `Sorry, I encountered an error: ${err instanceof Error ? err.message : "unknown error"}`;
       await say({ text: errorMsg, thread_ts: ts });
@@ -126,9 +126,9 @@ export async function createApp() {
     await threadManager.addMessage(task.id, "user", text, null);
 
     try {
-      const response = await runtime.chat(text);
-      await threadManager.addMessage(task.id, "assistant", response, null);
-      await say({ text: response, thread_ts: thread_ts });
+      const result = await runtime.chat(text);
+      await threadManager.addMessage(task.id, "assistant", result.text, null);
+      await say({ text: result.text, thread_ts: thread_ts });
     } catch (err) {
       const errorMsg = `Sorry, I encountered an error: ${err instanceof Error ? err.message : "unknown error"}`;
       await say({ text: errorMsg, thread_ts: thread_ts });
