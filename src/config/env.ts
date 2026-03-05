@@ -3,6 +3,7 @@ config();
 
 export const env = {
   DATABASE_URL: process.env.DATABASE_URL ?? "postgres://vandura:vandura@localhost:5432/vandura",
+  DB_TOOL_CONNECTION_URL: process.env.DB_TOOL_CONNECTION_URL ?? process.env.DATABASE_URL ?? "postgres://vandura:vandura@localhost:5432/vandura",
   KMS_PROVIDER: process.env.KMS_PROVIDER ?? "local",
   KMS_LOCAL_KEY_FILE: process.env.KMS_LOCAL_KEY_FILE ?? ".dev-master-key",
   S3_ENDPOINT: process.env.S3_ENDPOINT ?? "http://localhost:9000",

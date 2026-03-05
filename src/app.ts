@@ -4,144 +4,272 @@ import { createPool } from "./db/connection.js";
 import { runMigrations } from "./db/migrate.js";
 import { loadToolPolicies, loadAgents } from "./config/loader.js";
 import { SlackGateway } from "./slack/gateway.js";
+import { SlackApprovalFlow } from "./slack/approval-flow.js";
 import { ThreadManager } from "./threads/manager.js";
 import { ApprovalEngine } from "./approval/engine.js";
 import { AuditLogger } from "./audit/logger.js";
-import { AgentRuntime } from "./agent/runtime.js";
+import { AgentRuntime, type ChatOptions } from "./agent/runtime.js";
+import { ToolExecutor } from "./agent/tool-executor.js";
+import { PostgresTool } from "./tools/postgres.js";
 import { StorageService } from "./storage/s3.js";
+import type { ToolResult } from "./tools/types.js";
 import path from "node:path";
 
+interface PendingApproval {
+  approvalId: string;
+  toolName: string;
+  toolInput: Record<string, unknown>;
+  toolUseId: string;
+  tier: 2 | 3;
+  taskId: string;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type SayFn = (msg: any) => Promise<unknown>;
+
 export async function createApp() {
-  // 1. Load config files from config/ directory
   const configDir = path.join(process.cwd(), "config");
   const toolPolicies = await loadToolPolicies(path.join(configDir, "tool-policies.yml"));
   const agents = await loadAgents(path.join(configDir, "agents.yml"));
 
-  // 2. Set up database
   const pool = createPool(env.DATABASE_URL);
   await runMigrations(pool);
 
-  // 3. Seed/upsert agents into the database
-  const agentConfig = agents[0]; // v1: single agent
+  // Target DB pool for the Postgres tool (may differ from app DB)
+  const toolDbPool = createPool(env.DB_TOOL_CONNECTION_URL);
+
+  const agentConfig = agents[0];
   const agentRow = await pool.query(
     `INSERT INTO agents (name, role, tools, personality, system_prompt_extra, max_concurrent_tasks)
      VALUES ($1, $2, $3, $4, $5, $6)
      ON CONFLICT (name) DO UPDATE SET role = $2, tools = $3
      RETURNING id`,
-    [
-      agentConfig.name,
-      agentConfig.role,
-      JSON.stringify(agentConfig.tools),
-      agentConfig.personality ?? null,
-      agentConfig.system_prompt_extra ?? null,
-      agentConfig.max_concurrent_tasks,
-    ]
+    [agentConfig.name, agentConfig.role, JSON.stringify(agentConfig.tools),
+     agentConfig.personality ?? null, agentConfig.system_prompt_extra ?? null,
+     agentConfig.max_concurrent_tasks]
   );
   const agentId: string = agentRow.rows[0].id;
 
-  // 4. Initialize services
   const threadManager = new ThreadManager(pool);
   const approvalEngine = new ApprovalEngine(pool, toolPolicies);
   const auditLogger = new AuditLogger(pool);
+  const approvalFlow = new SlackApprovalFlow();
   const storage = new StorageService({
-    endpoint: env.S3_ENDPOINT,
-    accessKey: env.S3_ACCESS_KEY,
-    secretKey: env.S3_SECRET_KEY,
-    bucket: env.S3_BUCKET,
-    region: env.S3_REGION,
-    signedUrlExpiry: env.S3_SIGNED_URL_EXPIRY,
+    endpoint: env.S3_ENDPOINT, accessKey: env.S3_ACCESS_KEY,
+    secretKey: env.S3_SECRET_KEY, bucket: env.S3_BUCKET,
+    region: env.S3_REGION, signedUrlExpiry: env.S3_SIGNED_URL_EXPIRY,
   });
   await storage.ensureBucket();
 
-  // 5. Set up Slack (Socket Mode)
+  const pgTool = new PostgresTool(toolDbPool);
+
   const slackApp = new App({
     token: env.SLACK_BOT_TOKEN,
     appToken: env.SLACK_APP_TOKEN,
     socketMode: true,
   });
-  slackApp.error(async (error) => {
-    console.error("[SLACK ERROR]", error);
-  });
+  slackApp.error(async (error) => { console.error("[SLACK ERROR]", error); });
   const gateway = new SlackGateway(slackApp);
 
-  // Resolve bot user ID for self-mention detection
   const authResult = await slackApp.client.auth.test();
-  if (authResult.user_id) {
-    gateway.setBotUserId(authResult.user_id);
+  if (authResult.user_id) gateway.setBotUserId(authResult.user_id);
+
+  // State: active runtimes + pending approvals per thread
+  const activeAgents = new Map<string, AgentRuntime>();
+  const activeExecutors = new Map<string, ToolExecutor>();
+  const pendingApprovals = new Map<string, PendingApproval>();
+
+  // Helper: run agent chat with tools and handle approval flow
+  async function runAgentChat(
+    runtime: AgentRuntime,
+    executor: ToolExecutor,
+    task: { id: string; initiatorSlackId: string; checkerSlackId: string | null },
+    userMessage: string,
+    threadTs: string,
+    say: SayFn,
+  ): Promise<void> {
+    const chatOptions: ChatOptions = {
+      tools: [pgTool.definition()],
+      toolExecutor: async (toolName, toolInput, toolUseId) => {
+        const result = await executor.execute(toolName, toolInput, toolUseId);
+
+        if (result.needsApproval && result.approvalId && result.tier) {
+          await approvalFlow.postApprovalRequest({
+            say,
+            threadTs,
+            approvalId: result.approvalId,
+            toolName,
+            toolInput,
+            tier: result.tier as 2 | 3,
+            initiatorSlackId: task.initiatorSlackId,
+            checkerSlackId: task.checkerSlackId,
+          });
+
+          pendingApprovals.set(threadTs, {
+            approvalId: result.approvalId,
+            toolName,
+            toolInput,
+            toolUseId,
+            tier: result.tier as 2 | 3,
+            taskId: task.id,
+          });
+
+          return {
+            output: `Approval requested (tier ${result.tier}). Waiting for ${result.approver} to approve or deny.`,
+            isError: false,
+          };
+        }
+
+        return result as ToolResult;
+      },
+    };
+
+    const response = await runtime.chat(userMessage, chatOptions);
+    await threadManager.addMessage(task.id, "assistant", response.text, {
+      toolCalls: response.toolCalls,
+    });
+
+    // Upload large responses to S3
+    if (response.text.length > 4000) {
+      const { signedUrl } = await storage.upload({
+        key: `${task.id}/response-${Date.now()}.txt`,
+        content: Buffer.from(response.text),
+        contentType: "text/plain",
+      });
+      const preview = response.text.slice(0, 500) + `...\n\n📎 Full response: ${signedUrl}`;
+      await say({ text: preview, thread_ts: threadTs });
+    } else {
+      await say({ text: response.text, thread_ts: threadTs });
+    }
   }
 
-  // 6. Active agent runtimes (keyed by thread_ts)
-  const activeAgents = new Map<string, AgentRuntime>();
-
-  // 7. Handle @mentions — create new task thread
+  // Handle @mentions — create new task thread
   gateway.onMention(async ({ user, text, channel, ts, say }) => {
     await auditLogger.log({
-      action: "mention_received",
-      actor: user,
-      detail: { text, channel },
+      action: "mention_received", actor: user, detail: { text, channel },
     });
 
-    // Reply in thread
     await say({ text: "I'm on it! Let me look into this...", thread_ts: ts });
 
-    // Create task
     const task = await threadManager.createTask({
-      slackThreadTs: ts,
-      slackChannel: channel,
-      agentId,
-      initiatorSlackId: user,
+      slackThreadTs: ts, slackChannel: channel, agentId, initiatorSlackId: user,
     });
 
-    // Create agent runtime
     const runtime = new AgentRuntime({
       anthropicApiKey: env.ANTHROPIC_API_KEY,
       anthropicBaseUrl: env.ANTHROPIC_BASE_URL,
-      agentConfig,
-      toolPolicies,
+      agentConfig, toolPolicies,
     });
     activeAgents.set(ts, runtime);
 
-    // Process message
+    const executor = new ToolExecutor({
+      approvalEngine, auditLogger, taskId: task.id,
+      initiatorSlackId: user, checkerSlackId: null,
+      toolRunners: {
+        db_query: async (input) => {
+          const r = await pgTool.execute(input as { sql: string });
+          return r.error
+            ? { output: r.error, isError: true }
+            : { output: JSON.stringify({ rows: r.rows, rowCount: r.rowCount, columns: r.columns }) };
+        },
+      },
+    });
+    activeExecutors.set(ts, executor);
+
     const cleanText = text.replace(/<@[^>]+>/g, "").trim();
     await threadManager.addMessage(task.id, "user", cleanText, null);
 
     try {
-      const result = await runtime.chat(cleanText);
-      await threadManager.addMessage(task.id, "assistant", result.text, null);
-      await say({ text: result.text, thread_ts: ts });
+      await runAgentChat(runtime, executor, task, cleanText, ts, say);
     } catch (err) {
       const errorMsg = `Sorry, I encountered an error: ${err instanceof Error ? err.message : "unknown error"}`;
       await say({ text: errorMsg, thread_ts: ts });
     }
   });
 
-  // 8. Handle thread replies — continue conversation
-  gateway.onThreadMessage(async ({ text, channel, thread_ts, say }) => {
+  // Handle thread replies — approval decisions or continued conversation
+  gateway.onThreadMessage(async ({ user, text, channel, thread_ts, say }) => {
     const task = await threadManager.findByThread(channel, thread_ts);
     if (!task) return;
 
+    // Check if this is an approval decision
+    const pending = pendingApprovals.get(thread_ts);
+    if (pending) {
+      const decision = approvalFlow.parseDecision(text);
+      if (decision) {
+        const canApprove = approvalFlow.canApprove({
+          tier: pending.tier,
+          userId: user,
+          initiatorSlackId: task.initiatorSlackId,
+          checkerSlackId: task.checkerSlackId,
+        });
+
+        if (!canApprove) {
+          await say({
+            text: pending.tier === 2
+              ? `Only <@${task.initiatorSlackId}> can approve this (tier 2).`
+              : `Only the checker can approve this (tier 3).`,
+            thread_ts,
+          });
+          return;
+        }
+
+        await approvalEngine.resolve(pending.approvalId, decision, user);
+        pendingApprovals.delete(thread_ts);
+
+        if (decision === "rejected") {
+          await say({ text: "❌ Action denied. The tool will not be executed.", thread_ts });
+          await auditLogger.log({
+            taskId: task.id, action: "approval_rejected", actor: user,
+            detail: { toolName: pending.toolName, approvalId: pending.approvalId },
+          });
+          return;
+        }
+
+        // Approved — execute the tool
+        await say({ text: "✅ Approved. Executing...", thread_ts });
+        const executor = activeExecutors.get(thread_ts);
+        if (!executor) return;
+
+        const toolResult = await executor.executeApproved(
+          pending.toolName, pending.toolInput, user,
+        );
+
+        const runtime = activeAgents.get(thread_ts);
+        if (!runtime) return;
+
+        try {
+          const agentMsg = `Tool "${pending.toolName}" was approved and executed. Result: ${toolResult.output}`;
+          await threadManager.addMessage(task.id, "user", agentMsg, { source: "approval_result" });
+          await runAgentChat(runtime, executor, task, agentMsg, thread_ts, say);
+        } catch (err) {
+          const errorMsg = `Error after approval: ${err instanceof Error ? err.message : "unknown"}`;
+          await say({ text: errorMsg, thread_ts });
+        }
+        return;
+      }
+    }
+
+    // Regular conversation message
     const runtime = activeAgents.get(thread_ts);
     if (!runtime) return;
+
+    const executor = activeExecutors.get(thread_ts);
+    if (!executor) return;
 
     await threadManager.addMessage(task.id, "user", text, null);
 
     try {
-      const result = await runtime.chat(text);
-      await threadManager.addMessage(task.id, "assistant", result.text, null);
-      await say({ text: result.text, thread_ts: thread_ts });
+      await runAgentChat(runtime, executor, task, text, thread_ts, say);
     } catch (err) {
       const errorMsg = `Sorry, I encountered an error: ${err instanceof Error ? err.message : "unknown error"}`;
-      await say({ text: errorMsg, thread_ts: thread_ts });
+      await say({ text: errorMsg, thread_ts });
     }
   });
 
   return {
     start: () => gateway.start(),
-    pool,
-    gateway,
-    threadManager,
-    approvalEngine,
-    auditLogger,
-    storage,
+    pool, toolDbPool, gateway, threadManager,
+    approvalEngine, auditLogger, storage,
   };
 }
