@@ -47,7 +47,7 @@ export function buildHealthCheck(deps: HealthDeps): () => Promise<HealthResult> 
 
 export function startHealthServer(
   healthCheck: () => Promise<HealthResult>,
-  port = 3000,
+  port = 4734,
 ): Server {
   const server = createServer(async (req, res) => {
     if (req.url === "/health" && req.method === "GET") {

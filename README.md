@@ -52,7 +52,7 @@ The key idea: MCP servers handle the integration (database, API, docs, CI/CD, wh
 | Onboarding flow | `src/slack/onboarding-flow.ts` | DM-based role selection for new members |
 | Postgres tool | `src/tools/postgres.ts` | Built-in SQL tool (example MCP integration) |
 | Storage | `src/storage/s3.ts` | S3-compatible uploads with signed URLs |
-| Health check | `src/health.ts` | HTTP health endpoint on port 3000 |
+| Health check | `src/health.ts` | HTTP health endpoint on port 4734 |
 
 ## Prerequisites
 
@@ -189,7 +189,7 @@ kubectl apply -f k8s/deployment.yml
 kubectl apply -f k8s/service.yml
 ```
 
-The deployment includes health probes on port 3000 (`/healthz`).
+The deployment includes health probes on port 4734 (`/healthz`).
 
 ## Project Structure
 

@@ -19,7 +19,7 @@ spec:
         - name: vandura
           image: ghcr.io/barockok/vandura:latest
           ports:
-            - containerPort: 3000
+            - containerPort: 4734
               name: health
           envFrom:
             - configMapRef:

@@ -7,7 +7,7 @@ spec:
   selector:
     app: vandura
   ports:
-    - port: 3000
+    - port: 4734
       targetPort: health
       name: health
   type: ClusterIP
