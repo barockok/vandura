@@ -89,6 +89,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+      - name: Copy non-TS assets to dist
+        run: cp -r src/db/migrations dist/db/migrations
       - name: Generate KMS key file
         run: openssl rand -hex 32 > .dev-master-key
       - name: Run DB migrations
