@@ -5,3 +5,4 @@ dist/
 tmp/
 *.log
 coverage/
+acessToken.txt
