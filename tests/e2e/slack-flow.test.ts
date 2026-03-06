@@ -200,7 +200,7 @@ describe("E2E: Slack multi-user flows", () => {
     // Initiator requests a tier-3 action (db_write triggers tier 3)
     const post = (await slackPost("chat.postMessage", INITIATOR_TOKEN, {
       channel: CHANNEL_ID,
-      text: `<@${BOT_USER_ID}> create a table called e2e_test_${Date.now()} with one column "name" varchar(100) (id=${Date.now()})`,
+      text: `<@${BOT_USER_ID}> use db_write to create a table called e2e_test_${Date.now()} with one column "name" varchar(100)`,
     })) as { ok: boolean; ts: string };
     expect(post.ok).toBe(true);
     createdThreads.push(post.ts);
@@ -284,7 +284,7 @@ describe("E2E: Slack multi-user flows", () => {
   it("tier-3: checker rejects, tool not executed", async () => {
     const post = (await slackPost("chat.postMessage", INITIATOR_TOKEN, {
       channel: CHANNEL_ID,
-      text: `<@${BOT_USER_ID}> delete all rows from e2e_cleanup_${Date.now()} table (id=${Date.now()})`,
+      text: `<@${BOT_USER_ID}> use db_write to delete all rows from e2e_cleanup_${Date.now()} table`,
     })) as { ok: boolean; ts: string };
     expect(post.ok).toBe(true);
     createdThreads.push(post.ts);
@@ -360,7 +360,7 @@ describe("E2E: Slack multi-user flows", () => {
   it("tier-3: initiator cannot self-approve", async () => {
     const post = (await slackPost("chat.postMessage", INITIATOR_TOKEN, {
       channel: CHANNEL_ID,
-      text: `<@${BOT_USER_ID}> drop the e2e_selfapproval_${Date.now()} table if it exists (id=${Date.now()})`,
+      text: `<@${BOT_USER_ID}> use db_write to drop the e2e_selfapproval_${Date.now()} table if it exists`,
     })) as { ok: boolean; ts: string };
     expect(post.ok).toBe(true);
     createdThreads.push(post.ts);

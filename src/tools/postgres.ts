@@ -17,7 +17,14 @@ export interface ExplainResult {
 export class PostgresTool {
   constructor(private pool: Pool) {}
 
-  async execute(input: { sql: string }): Promise<QueryResult> {
+  async execute(input: { sql: string }, readOnly = false): Promise<QueryResult> {
+    if (readOnly) {
+      const normalized = input.sql.trim().toUpperCase();
+      const writeKeywords = ["INSERT", "UPDATE", "DELETE", "CREATE", "ALTER", "DROP", "TRUNCATE"];
+      if (writeKeywords.some((kw) => normalized.startsWith(kw))) {
+        return { rows: [], columns: [], rowCount: 0, error: "db_query is read-only. Use db_write for write operations." };
+      }
+    }
     try {
       const result = await this.pool.query(input.sql);
       const columns = result.fields?.map((f: { name: string }) => f.name) ?? [];

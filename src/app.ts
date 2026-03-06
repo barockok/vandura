@@ -217,7 +217,7 @@ export async function createApp() {
       initiatorUser: vanduraUser,
       toolRunners: {
         db_query: async (input) => {
-          const r = await pgTool.execute(input as { sql: string });
+          const r = await pgTool.execute(input as { sql: string }, true);
           return r.error
             ? { output: r.error, isError: true }
             : { output: JSON.stringify({ rows: r.rows, rowCount: r.rowCount, columns: r.columns }) };
