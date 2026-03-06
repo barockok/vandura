@@ -17,6 +17,9 @@ tool_policies:
       Confirm the target space and page title with the initiator.
       Show a preview of the content before creating.
 
+  upload_file:
+    tier: 1
+
   mcp__gcs__upload:
     tier: 1
 

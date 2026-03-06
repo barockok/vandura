@@ -62,6 +62,10 @@ export function buildSystemPrompt(params: PromptParams): string {
       "For tables or structured data, use a code block with aligned columns — Slack doesn't render markdown tables.",
       "Keep messages concise. Use bullet points for lists. Break up walls of text.",
       "For approval requests or important results, make them scannable — key info should jump out.",
+      "",
+      "When users ask for a file export (CSV, JSON, etc.), use the upload_file tool to create a downloadable file.",
+      "Don't dump raw CSV/JSON inline — upload it as a proper file and share the download link.",
+      "Post a brief summary of what's in the file alongside the link.",
     ].join("\n")
   );
 

@@ -17,6 +17,7 @@ import { ToolExecutor } from "./agent/tool-executor.js";
 import { CheckerFlow } from "./slack/checker-flow.js";
 import { TaskLifecycle } from "./slack/task-lifecycle.js";
 import { PostgresTool } from "./tools/postgres.js";
+import { UploadFileTool } from "./tools/upload-file.js";
 import { StorageService } from "./storage/s3.js";
 import { markdownToSlack } from "./slack/format.js";
 import { buildHealthCheck, startHealthServer } from "./health.js";
@@ -100,6 +101,7 @@ export async function createApp() {
   const pendingApprovals = new Map<string, PendingApproval>();
   const pendingCheckerNomination = new Set<string>();
   const pendingOnboarding = new Map<string, string>(); // DM channel → slack user ID
+  const activeUploadDefs = new Map<string, ReturnType<UploadFileTool["definition"]>>();
 
   function formatDuration(start: Date, end: Date): string {
     const ms = end.getTime() - start.getTime();
@@ -118,7 +120,7 @@ export async function createApp() {
     say: SayFn,
   ): Promise<void> {
     const chatOptions: ChatOptions = {
-      tools: [pgTool.definition()],
+      tools: [pgTool.definition(), ...(activeUploadDefs.has(threadTs) ? [activeUploadDefs.get(threadTs)!] : [])],
       toolExecutor: async (toolName, toolInput, toolUseId) => {
         const result = await executor.execute(toolName, toolInput, toolUseId);
 
@@ -206,6 +208,8 @@ export async function createApp() {
     if (!vanduraUser) {
       vanduraUser = await userManager.findOrCreate(user, user, "business");
     }
+    const uploadTool = new UploadFileTool(storage, task.id);
+    activeUploadDefs.set(ts, uploadTool.definition());
     const executor = new ToolExecutor({
       approvalEngine, auditLogger, taskId: task.id,
       initiatorSlackId: user, checkerSlackId: null,
@@ -217,6 +221,10 @@ export async function createApp() {
           return r.error
             ? { output: r.error, isError: true }
             : { output: JSON.stringify({ rows: r.rows, rowCount: r.rowCount, columns: r.columns }) };
+        },
+        upload_file: async (input) => {
+          const r = await uploadTool.execute(input as { filename: string; content: string; content_type: string });
+          return { output: JSON.stringify(r) };
         },
       },
     });
@@ -245,6 +253,7 @@ export async function createApp() {
       await threadManager.closeTask(task.id, closeCommand);
       activeAgents.delete(thread_ts);
       activeExecutors.delete(thread_ts);
+      activeUploadDefs.delete(thread_ts);
       pendingApprovals.delete(thread_ts);
       pendingCheckerNomination.delete(thread_ts);
 
