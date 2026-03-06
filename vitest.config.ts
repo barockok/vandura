@@ -1,5 +1,4 @@
 import { defineConfig } from "vitest/config";
-import { execSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
@@ -17,5 +16,11 @@ export default defineConfig({
     testTimeout: 30_000,
     hookTimeout: 60_000,
     exclude: ["tests/e2e/**", "node_modules/**"],
+    coverage: {
+      provider: "v8",
+      reporter: ["text", "json-summary", "json"],
+      include: ["src/**/*.ts"],
+      exclude: ["src/index.ts"],
+    },
   },
 });
