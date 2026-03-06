@@ -963,7 +963,56 @@ kubectl -n vandura rollout status deployment/vandura-service
 
 ---
 
-## 11. Build vs Buy Summary
+## 11. Thread Persistence & Task Lifecycle (Future Phase)
+
+### Problem
+
+Agent runtime state (conversation history, tool executor, approval tracking) is currently held in memory. If the service restarts, all active threads become unresponsive — the bot won't reply to follow-up messages in existing threads.
+
+Tasks also have no timeout — an "open" task stays open forever in the DB if nobody explicitly closes it, and in-memory maps grow unbounded.
+
+### Requirements
+
+#### Thread Reconnection
+
+When a thread reply comes in for a task that exists in the DB but has no in-memory runtime:
+
+1. Look up the task by `(channel, thread_ts)`
+2. Load conversation history from the `messages` table
+3. Spin up a new `AgentRuntime` and replay the history
+4. Restore the `ToolExecutor` with the task's approved tier level
+5. Resume the conversation as if nothing happened
+
+This makes threads survive restarts and feel persistent to users.
+
+#### Task Staleness & Cleanup
+
+- **Auto-stale**: Mark tasks as `stale` after N hours of inactivity (configurable, default 4h)
+- **Auto-close**: Close stale tasks after another N hours (configurable, default 24h)
+- **Memory eviction**: Evict idle in-memory runtimes after a timeout to bound memory usage
+- **Stale notification**: When a task goes stale, post a message in the thread asking if the user still needs it
+
+#### Data Model Changes
+
+```sql
+ALTER TABLE tasks
+  ADD COLUMN last_activity_at TIMESTAMPTZ DEFAULT now(),
+  ADD COLUMN approved_tier SMALLINT DEFAULT 0;
+```
+
+- `last_activity_at` updated on every message or tool call — used for staleness detection
+- `approved_tier` persisted so reconnected executors know what's already been approved
+
+#### Implementation Notes
+
+- A periodic cleanup job (setInterval or cron) scans for stale tasks
+- Reconnection should be transparent — the user just keeps talking in the thread
+- History replay must handle the case where the conversation is very long (truncate oldest messages to fit context window)
+- Pending approvals should also be restorable from the `approvals` table
+
+---
+
+## 12. Build vs Buy Summary
 
 | Component | Approach |
 |---|---|
@@ -979,7 +1028,7 @@ Reference: [claude-code-slack-bot](https://github.com/mpociot/claude-code-slack-
 
 ---
 
-## 12. Key References
+## 13. Key References
 
 - [Anthropic Claude Agent SDK (TypeScript)](https://github.com/anthropics/claude-agent-sdk-typescript)
 - [Claude Agent SDK MCP Docs](https://platform.claude.com/docs/en/agent-sdk/mcp)
