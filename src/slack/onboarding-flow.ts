@@ -12,7 +12,9 @@ interface SlackClient {
 export class OnboardingFlow {
   constructor(private availableRoles: string[]) {}
 
-  buildWelcomeMessage(channelId: string): string {
+  buildWelcomeMessage(
+    _channelId: string, // eslint-disable-line @typescript-eslint/no-unused-vars -- reserved for channel-specific welcome
+  ): string {
     const roleList = this.availableRoles
       .map((r, i) => `  ${i + 1}. *${r}*`)
       .join("\n");

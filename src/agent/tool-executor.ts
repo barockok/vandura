@@ -34,7 +34,7 @@ export class ToolExecutor {
   async execute(
     toolName: string,
     toolInput: Record<string, unknown>,
-    toolUseId: string,
+    _toolUseId: string, // eslint-disable-line @typescript-eslint/no-unused-vars -- reserved for future per-call tracking
   ): Promise<ToolExecutorResult> {
     const runner = this.config.toolRunners[toolName];
     if (!runner) {
