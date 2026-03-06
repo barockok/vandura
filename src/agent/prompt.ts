@@ -8,9 +8,17 @@ interface PromptParams {
 export function buildSystemPrompt(params: PromptParams): string {
   const sections: string[] = [];
 
-  // 1. Agent identity
+  // 1. Current context
+  const now = new Date();
+  const dateStr = now.toLocaleDateString("en-US", {
+    weekday: "long", year: "numeric", month: "long", day: "numeric",
+  });
   sections.push(
-    `You are ${params.agentName}, an AI agent in the Vandura system.`
+    [
+      `## Context`,
+      `Today is ${dateStr}.`,
+      `You are ${params.agentName}, an AI agent in the Vandura system.`,
+    ].join("\n")
   );
 
   // 2. Context & tone
