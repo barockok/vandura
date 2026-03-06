@@ -4,6 +4,16 @@ async function main() {
   const app = await createApp();
   await app.start();
   console.log("Vandura is running!");
+
+  // Graceful shutdown — close DB pools so tsx watch can restart cleanly
+  const shutdown = async () => {
+    console.log("Shutting down...");
+    await app.pool.end();
+    await app.toolDbPool.end();
+    process.exit(0);
+  };
+  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", shutdown);
 }
 
 main().catch((err) => {
