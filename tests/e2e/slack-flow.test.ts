@@ -53,7 +53,11 @@ async function slackPost(
     },
     body: JSON.stringify(body),
   });
-  return (await resp.json()) as Record<string, unknown>;
+  const result = (await resp.json()) as Record<string, unknown>;
+  if (!result.ok) {
+    console.error(`Slack ${method} failed:`, result.error, JSON.stringify(result));
+  }
+  return result;
 }
 
 async function waitFor<T>(
