@@ -89,6 +89,43 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+      - name: Generate KMS key file
+        run: openssl rand -hex 32 > .dev-master-key
+      - name: Run DB migrations
+        run: npx tsx src/db/migrate.ts
+        env:
+          DATABASE_URL: postgres://vandura:vandura@localhost:5432/vandura_test
+      - name: Start Vandura service
+        run: |
+          node dist/index.js > /tmp/vandura.log 2>&1 &
+          echo $! > /tmp/vandura.pid
+          # Wait for the service to be ready (up to 60s)
+          for i in $(seq 1 30); do
+            if grep -q "Vandura is running!" /tmp/vandura.log 2>/dev/null; then
+              echo "Vandura started successfully"
+              break
+            fi
+            if [ "$i" -eq 30 ]; then
+              echo "Vandura failed to start. Logs:"
+              cat /tmp/vandura.log
+              exit 1
+            fi
+            sleep 2
+          done
+        env:
+          DATABASE_URL: postgres://vandura:vandura@localhost:5432/vandura_test
+          DB_TOOL_CONNECTION_URL: postgres://vandura:vandura@localhost:5432/vandura_test
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
+          SLACK_APP_TOKEN: ${{ secrets.SLACK_APP_TOKEN }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL_ID: ${{ secrets.SLACK_CHANNEL_ID }}
+          KMS_PROVIDER: local
+          S3_ENDPOINT: ""
+          S3_ACCESS_KEY: ""
+          S3_SECRET_KEY: ""
+          S3_BUCKET: ""
+          S3_REGION: us-east-1
       - name: Run E2E tests
         run: npm run test:e2e:slack
         env:
@@ -110,3 +147,9 @@ jobs:
           S3_SECRET_KEY: ""
           S3_BUCKET: ""
           S3_REGION: us-east-1
+      - name: Show Vandura logs
+        if: always()
+        run: cat /tmp/vandura.log 2>/dev/null || echo "No logs found"
+      - name: Stop Vandura service
+        if: always()
+        run: kill "$(cat /tmp/vandura.pid)" 2>/dev/null || true
