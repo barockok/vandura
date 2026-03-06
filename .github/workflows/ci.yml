@@ -5,6 +5,7 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 jobs:
   lint-and-typecheck:
@@ -22,6 +23,8 @@ jobs:
   test:
     runs-on: ubuntu-latest
     needs: lint-and-typecheck
+    permissions:
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -29,23 +32,13 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm test  # excludes E2E tests (see vitest.config.ts)
-
-  # e2e-slack:
-  #   runs-on: ubuntu-latest
-  #   needs: test
-  #   if: github.event_name == 'workflow_dispatch'
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - uses: actions/setup-node@v4
-  #       with:
-  #         node-version: 22
-  #         cache: npm
-  #     - run: npm ci
-  #     - run: npm run test:e2e:slack
-  #       env:
-  #         SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
-  #         SLACK_SIGNING_SECRET: ${{ secrets.SLACK_SIGNING_SECRET }}
+      - run: npm run test:coverage
+      - name: Coverage report
+        uses: davelosert/vitest-coverage-report-action@v2
+        if: github.event_name == 'pull_request'
+        with:
+          json-summary-path: coverage/coverage-summary.json
+          json-final-path: coverage/coverage-final.json
 
   build-and-push:
     runs-on: ubuntu-latest
@@ -70,3 +63,50 @@ jobs:
             ghcr.io/${{ github.repository }}:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  e2e-slack:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: vandura_test
+          POSTGRES_USER: vandura
+          POSTGRES_PASSWORD: vandura
+        options: >-
+          --health-cmd "pg_isready -U vandura"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Run E2E tests
+        run: npm run test:e2e:slack
+        env:
+          DATABASE_URL: postgres://vandura:vandura@localhost:5432/vandura_test
+          DB_TOOL_CONNECTION_URL: postgres://vandura:vandura@localhost:5432/vandura_test
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
+          SLACK_APP_TOKEN: ${{ secrets.SLACK_APP_TOKEN }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL_ID: ${{ secrets.SLACK_CHANNEL_ID }}
+          SLACK_USER_TOKEN: ${{ secrets.SLACK_USER_TOKEN }}
+          E2E_INITIATOR_TOKEN: ${{ secrets.E2E_INITIATOR_TOKEN }}
+          E2E_INITIATOR_REFRESH_TOKEN: ${{ secrets.E2E_INITIATOR_REFRESH_TOKEN }}
+          E2E_CHECKER_TOKEN: ${{ secrets.E2E_CHECKER_TOKEN }}
+          E2E_CHECKER_REFRESH_TOKEN: ${{ secrets.E2E_CHECKER_REFRESH_TOKEN }}
+          KMS_PROVIDER: local
+          S3_ENDPOINT: ""
+          S3_ACCESS_KEY: ""
+          S3_SECRET_KEY: ""
+          S3_BUCKET: ""
+          S3_REGION: us-east-1

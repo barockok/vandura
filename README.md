@@ -6,6 +6,8 @@
   <em>"I love it when a plan comes together."</em>
 </div>
 
+[![CI](https://github.com/barockok/vandura/actions/workflows/ci.yml/badge.svg)](https://github.com/barockok/vandura/actions/workflows/ci.yml)
+
 <br />
 
 Slack-based bridge that connects your team to AI agents powered by any MCP (Model Context Protocol) server — with built-in governance, tiered approval workflows, and full audit trails.
