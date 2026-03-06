@@ -18,6 +18,7 @@ import { CheckerFlow } from "./slack/checker-flow.js";
 import { TaskLifecycle } from "./slack/task-lifecycle.js";
 import { PostgresTool } from "./tools/postgres.js";
 import { StorageService } from "./storage/s3.js";
+import { markdownToSlack } from "./slack/format.js";
 import { buildHealthCheck, startHealthServer } from "./health.js";
 import type { ToolResult } from "./tools/types.js";
 import path from "node:path";
@@ -157,17 +158,20 @@ export async function createApp() {
       toolCalls: response.toolCalls,
     });
 
+    // Convert Markdown to Slack mrkdwn before sending
+    const slackText = markdownToSlack(response.text);
+
     // Upload large responses to S3
-    if (response.text.length > 4000) {
+    if (slackText.length > 4000) {
       const { signedUrl } = await storage.upload({
         key: `${task.id}/response-${Date.now()}.txt`,
         content: Buffer.from(response.text),
         contentType: "text/plain",
       });
-      const preview = response.text.slice(0, 500) + `...\n\n📎 Full response: ${signedUrl}`;
+      const preview = markdownToSlack(response.text.slice(0, 500)) + `...\n\n📎 Full response: ${signedUrl}`;
       await say({ text: preview, thread_ts: threadTs });
     } else {
-      await say({ text: response.text, thread_ts: threadTs });
+      await say({ text: slackText, thread_ts: threadTs });
     }
   }
 
