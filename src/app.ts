@@ -434,11 +434,20 @@ export async function createApp() {
   });
 
   const healthCheck = buildHealthCheck({ pool, storage });
+  let healthServer: ReturnType<typeof startHealthServer> | null = null;
 
   return {
     start: async () => {
       await gateway.start();
-      startHealthServer(healthCheck);
+      healthServer = startHealthServer(healthCheck);
+    },
+    stop: async () => {
+      console.log("Shutting down...");
+      healthServer?.close();
+      await slackApp.stop();
+      await pool.end();
+      await toolDbPool.end();
+      console.log("Shutdown complete.");
     },
     pool, toolDbPool, gateway, threadManager,
     approvalEngine, auditLogger, storage, healthCheck,

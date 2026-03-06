@@ -5,13 +5,26 @@ async function main() {
   await app.start();
   console.log("Vandura is running!");
 
-  // Graceful shutdown — close DB pools so tsx watch can restart cleanly
+  let shuttingDown = false;
   const shutdown = async () => {
-    console.log("Shutting down...");
-    await app.pool.end();
-    await app.toolDbPool.end();
+    if (shuttingDown) return;
+    shuttingDown = true;
+
+    // Force exit after 5s if graceful shutdown hangs
+    const forceTimer = setTimeout(() => {
+      console.error("Shutdown timed out, forcing exit.");
+      process.exit(1);
+    }, 5000);
+    forceTimer.unref();
+
+    try {
+      await app.stop();
+    } catch (err) {
+      console.error("Error during shutdown:", err);
+    }
     process.exit(0);
   };
+
   process.on("SIGTERM", shutdown);
   process.on("SIGINT", shutdown);
 }
