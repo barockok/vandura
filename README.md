@@ -1,7 +1,7 @@
 # Vandura
 
 <div align="center">
-  <img src="https://static.wikia.nocookie.net/readyplayerone/images/c/c6/001-a-team-tribute-van-for-sale-.jpg/revision/latest?cb=20180614112519" alt="The A-Team Van" width="600" />
+  <img src="./aseets/vandura-gmc-a-team-full-crew-pixelate.png" alt="The A-Team Van"  />
   <br />
   <em>"I love it when a plan comes together."</em>
 </div>
