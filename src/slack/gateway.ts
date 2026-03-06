@@ -27,6 +27,7 @@ export interface MemberJoinedPayload {
 
 export class SlackGateway {
   private botUserId: string | null = null;
+  private processedMentions = new Set<string>();
 
   constructor(private app: App) {}
 
@@ -35,11 +36,25 @@ export class SlackGateway {
   }
 
   onMention(handler: (payload: MentionPayload) => void | Promise<void>): void {
+    const dedupedHandler = async (payload: MentionPayload) => {
+      // Deduplicate: Slack fires both app_mention and message events for @mentions
+      if (this.processedMentions.has(payload.ts)) return;
+      this.processedMentions.add(payload.ts);
+
+      // Prevent unbounded growth — prune old entries after 1000
+      if (this.processedMentions.size > 1000) {
+        const entries = [...this.processedMentions];
+        for (let i = 0; i < 500; i++) this.processedMentions.delete(entries[i]);
+      }
+
+      await handler(payload);
+    };
+
     // Listen for app_mention events (from real user messages)
     this.app.event("app_mention", async ({ event, say }) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const e = event as any;
-      await handler({
+      await dedupedHandler({
         user: e.user ?? "",
         text: e.text ?? "",
         channel: e.channel,
@@ -64,7 +79,7 @@ export class SlackGateway {
       // Skip if this is from our own bot (avoid self-loop)
       if (msg.user === this.botUserId) return;
 
-      await handler({
+      await dedupedHandler({
         user: (msg.user as string) ?? "",
         text,
         channel: msg.channel as string,
