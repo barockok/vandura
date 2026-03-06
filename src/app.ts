@@ -2,7 +2,11 @@ import { App } from "@slack/bolt";
 import { env } from "./config/env.js";
 import { createPool } from "./db/connection.js";
 import { runMigrations } from "./db/migrate.js";
-import { loadToolPolicies, loadAgents } from "./config/loader.js";
+import { loadToolPolicies, loadAgents, loadRoles } from "./config/loader.js";
+import { UserManager } from "./users/manager.js";
+import { PermissionService } from "./permissions/service.js";
+import { OnboardingFlow } from "./slack/onboarding-flow.js";
+import type { RolePermission } from "./config/types.js";
 import { SlackGateway } from "./slack/gateway.js";
 import { SlackApprovalFlow } from "./slack/approval-flow.js";
 import { ThreadManager } from "./threads/manager.js";
@@ -35,8 +39,20 @@ export async function createApp() {
   const toolPolicies = await loadToolPolicies(path.join(configDir, "tool-policies.yml"));
   const agents = await loadAgents(path.join(configDir, "agents.yml"));
 
+  let roles: Record<string, RolePermission> = {};
+  try {
+    roles = await loadRoles(path.join(configDir, "roles.yml"));
+  } catch {
+    console.warn("[CONFIG] roles.yml not found — running without role-based permissions");
+  }
+
   const pool = createPool(env.DATABASE_URL);
   await runMigrations(pool);
+
+  const userManager = new UserManager(pool);
+  const permissionService = new PermissionService(roles);
+  const availableRoles = Object.keys(roles);
+  const onboardingFlow = new OnboardingFlow(availableRoles);
 
   // Target DB pool for the Postgres tool (may differ from app DB)
   const toolDbPool = createPool(env.DB_TOOL_CONNECTION_URL);
@@ -82,6 +98,7 @@ export async function createApp() {
   const activeExecutors = new Map<string, ToolExecutor>();
   const pendingApprovals = new Map<string, PendingApproval>();
   const pendingCheckerNomination = new Set<string>();
+  const pendingOnboarding = new Map<string, string>(); // DM channel → slack user ID
 
   function formatDuration(start: Date, end: Date): string {
     const ms = end.getTime() - start.getTime();
@@ -173,9 +190,16 @@ export async function createApp() {
     });
     activeAgents.set(ts, runtime);
 
+    let vanduraUser = await userManager.findBySlackId(user);
+    if (!vanduraUser) {
+      vanduraUser = await userManager.findOrCreate(user, user, "business");
+    }
+
     const executor = new ToolExecutor({
       approvalEngine, auditLogger, taskId: task.id,
       initiatorSlackId: user, checkerSlackId: null,
+      permissionService,
+      initiatorUser: vanduraUser,
       toolRunners: {
         db_query: async (input) => {
           const r = await pgTool.execute(input as { sql: string });
@@ -325,6 +349,86 @@ export async function createApp() {
     }
   });
 
+  gateway.onMemberJoined(async ({ user, channel }) => {
+    if (authResult.user_id && user === authResult.user_id) return;
+
+    const existingUser = await userManager.findBySlackId(user);
+    if (existingUser?.onboardedAt) return;
+
+    if (availableRoles.length === 0) return;
+
+    try {
+      const dmResult = await slackApp.client.conversations.open({ users: user });
+      if (!dmResult.ok || !dmResult.channel?.id) {
+        console.error(`[ONBOARDING] Could not open DM with ${user}`);
+        return;
+      }
+
+      pendingOnboarding.set(dmResult.channel.id, user);
+
+      const welcomeMsg = onboardingFlow.buildWelcomeMessage(channel);
+      await slackApp.client.chat.postMessage({
+        channel: dmResult.channel.id,
+        text: welcomeMsg,
+      });
+
+      await auditLogger.log({
+        action: "onboarding_started", actor: user,
+        detail: { channel, dmSent: true },
+      });
+    } catch (err) {
+      console.error(`[ONBOARDING] Failed to DM user ${user}:`, err);
+    }
+  });
+
+  slackApp.event("message", async ({ event }) => {
+    const msg = event as unknown as Record<string, unknown>;
+    const channelId = msg.channel as string;
+    const userId = msg.user as string;
+    const text = (msg.text as string) ?? "";
+
+    if (!pendingOnboarding.has(channelId)) return;
+    const pendingUserId = pendingOnboarding.get(channelId);
+    if (pendingUserId !== userId) return;
+
+    if (msg.thread_ts) return;
+    if (msg.bot_id) return;
+
+    const role = onboardingFlow.parseRoleReply(text);
+    if (!role) {
+      await slackApp.client.chat.postMessage({
+        channel: channelId,
+        text: `I didn't recognize that role. Please reply with one of: ${availableRoles.join(", ")}`,
+      });
+      return;
+    }
+
+    try {
+      let displayName = userId;
+      try {
+        const userInfo = await slackApp.client.users.info({ user: userId });
+        displayName = userInfo.user?.profile?.display_name
+          || userInfo.user?.real_name
+          || userId;
+      } catch { /* use userId as fallback */ }
+
+      const vanduraUser = await userManager.findOrCreate(userId, displayName, role);
+      await userManager.markOnboarded(vanduraUser.id);
+      pendingOnboarding.delete(channelId);
+
+      const confirmMsg = onboardingFlow.buildConfirmationMessage(role);
+      await slackApp.client.chat.postMessage({ channel: channelId, text: confirmMsg });
+
+      await auditLogger.log({
+        action: "onboarding_completed", actor: userId,
+        detail: { role, userId: vanduraUser.id },
+      });
+    } catch (err) {
+      console.error(`[ONBOARDING] Failed to complete onboarding for ${userId}:`, err);
+      pendingOnboarding.delete(channelId);
+    }
+  });
+
   const healthCheck = buildHealthCheck({ pool, storage });
 
   return {
@@ -334,5 +438,6 @@ export async function createApp() {
     },
     pool, toolDbPool, gateway, threadManager,
     approvalEngine, auditLogger, storage, healthCheck,
+    userManager, permissionService, onboardingFlow,
   };
 }
