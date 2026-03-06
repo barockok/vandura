@@ -1,0 +1,76 @@
+// tests/integration/permissions.test.ts
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
+import { createPool, type Pool } from "../../src/db/connection.js";
+import { runMigrations } from "../../src/db/migrate.js";
+import { UserManager } from "../../src/users/manager.js";
+import { PermissionService } from "../../src/permissions/service.js";
+import type { RolePermission } from "../../src/config/types.js";
+
+describe("Permission + Onboarding integration", () => {
+  let container: StartedPostgreSqlContainer;
+  let pool: Pool;
+  let userMgr: UserManager;
+  let permSvc: PermissionService;
+
+  const roles: Record<string, RolePermission> = {
+    pm: {
+      agents: ["atlas"],
+      tool_tiers: { db_query: { max_tier: 1 } },
+    },
+    engineering: {
+      agents: ["atlas", "sentinel"],
+      tool_tiers: { db_query: { max_tier: 3 }, db_write: { max_tier: 3 } },
+    },
+  };
+
+  beforeAll(async () => {
+    container = await new PostgreSqlContainer("postgres:16-alpine")
+      .withStartupTimeout(60_000)
+      .start();
+    pool = createPool(container.getConnectionUri());
+    await runMigrations(pool);
+    userMgr = new UserManager(pool);
+    permSvc = new PermissionService(roles);
+  }, 90_000);
+
+  afterAll(async () => {
+    await pool?.end();
+    await container?.stop();
+  });
+
+  it("full onboarding → permission check flow", async () => {
+    // 1. Create user (simulating onboarding)
+    const user = await userMgr.findOrCreate("U_INTEG", "Integration User", "pm");
+    expect(user.onboardedAt).toBeNull();
+
+    // 2. Non-onboarded user is denied
+    const denied = permSvc.checkToolAccess(user, "db_query", 1);
+    expect(denied.allowed).toBe(false);
+
+    // 3. Mark onboarded
+    const onboarded = await userMgr.markOnboarded(user.id);
+
+    // 4. PM can use db_query at tier 1
+    const allowed = permSvc.checkToolAccess(onboarded, "db_query", 1);
+    expect(allowed.allowed).toBe(true);
+
+    // 5. PM cannot use db_query at tier 2
+    const denied2 = permSvc.checkToolAccess(onboarded, "db_query", 2);
+    expect(denied2.allowed).toBe(false);
+
+    // 6. Upgrade to engineering
+    const upgraded = await userMgr.setRole(user.id, "engineering");
+
+    // 7. Engineering can use db_query at tier 3
+    const allowed3 = permSvc.checkToolAccess(upgraded, "db_query", 3);
+    expect(allowed3.allowed).toBe(true);
+
+    // 8. Add user override to block db_write
+    const withOverride = await userMgr.setToolOverrides(user.id, {
+      db_write: { blocked: true },
+    });
+    const blocked = permSvc.checkToolAccess(withOverride, "db_write", 1);
+    expect(blocked.allowed).toBe(false);
+  });
+});
