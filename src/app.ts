@@ -120,7 +120,7 @@ export async function createApp() {
     say: SayFn,
   ): Promise<void> {
     const chatOptions: ChatOptions = {
-      tools: [pgTool.definition(), ...(activeUploadDefs.has(threadTs) ? [activeUploadDefs.get(threadTs)!] : [])],
+      tools: [pgTool.definition(), pgTool.writeDefinition(), ...(activeUploadDefs.has(threadTs) ? [activeUploadDefs.get(threadTs)!] : [])],
       toolExecutor: async (toolName, toolInput, toolUseId) => {
         const result = await executor.execute(toolName, toolInput, toolUseId);
 
@@ -221,6 +221,12 @@ export async function createApp() {
           return r.error
             ? { output: r.error, isError: true }
             : { output: JSON.stringify({ rows: r.rows, rowCount: r.rowCount, columns: r.columns }) };
+        },
+        db_write: async (input) => {
+          const r = await pgTool.execute(input as { sql: string });
+          return r.error
+            ? { output: r.error, isError: true }
+            : { output: JSON.stringify({ rowCount: r.rowCount, columns: r.columns }) };
         },
         upload_file: async (input) => {
           const r = await uploadTool.execute(input as { filename: string; content: string; content_type: string });

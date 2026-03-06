@@ -69,4 +69,22 @@ export class PostgresTool {
       },
     };
   }
+
+  writeDefinition(): ToolDefinition {
+    return {
+      name: "db_write",
+      description:
+        "Execute a write SQL statement (INSERT, UPDATE, DELETE, CREATE, ALTER, DROP) against the Postgres database. This requires approval before execution.",
+      input_schema: {
+        type: "object",
+        properties: {
+          sql: {
+            type: "string",
+            description: "The SQL write statement to execute. Must be a valid PostgreSQL statement.",
+          },
+        },
+        required: ["sql"],
+      },
+    };
+  }
 }

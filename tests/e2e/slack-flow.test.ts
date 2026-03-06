@@ -196,7 +196,7 @@ describe("E2E: Slack multi-user flows", () => {
     expect(task.rows.length).toBe(1);
   }, 120_000);
 
-  it.skip("tier-3: checker approves, tool executes", async () => {
+  it("tier-3: checker approves, tool executes", async () => {
     // Initiator requests a tier-3 action (db_write triggers tier 3)
     const post = (await slackPost("chat.postMessage", INITIATOR_TOKEN, {
       channel: CHANNEL_ID,
@@ -281,7 +281,7 @@ describe("E2E: Slack multi-user flows", () => {
     expect(approvals.rows.length).toBeGreaterThanOrEqual(1);
   }, 180_000);
 
-  it.skip("tier-3: checker rejects, tool not executed", async () => {
+  it("tier-3: checker rejects, tool not executed", async () => {
     const post = (await slackPost("chat.postMessage", INITIATOR_TOKEN, {
       channel: CHANNEL_ID,
       text: `<@${BOT_USER_ID}> delete all rows from e2e_cleanup_${Date.now()} table (id=${Date.now()})`,
@@ -357,7 +357,7 @@ describe("E2E: Slack multi-user flows", () => {
     }
   }, 180_000);
 
-  it.skip("tier-3: initiator cannot self-approve", async () => {
+  it("tier-3: initiator cannot self-approve", async () => {
     const post = (await slackPost("chat.postMessage", INITIATOR_TOKEN, {
       channel: CHANNEL_ID,
       text: `<@${BOT_USER_ID}> drop the e2e_selfapproval_${Date.now()} table if it exists (id=${Date.now()})`,
