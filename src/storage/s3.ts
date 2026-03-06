@@ -46,6 +46,7 @@ export class StorageService {
   }
 
   async ensureBucket(): Promise<void> {
+    if (!this.config.endpoint || !this.config.accessKey) return;
     try {
       await this.client.send(
         new HeadBucketCommand({ Bucket: this.config.bucket }),
