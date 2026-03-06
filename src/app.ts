@@ -198,11 +198,6 @@ export async function createApp() {
     if (!vanduraUser) {
       vanduraUser = await userManager.findOrCreate(user, user, "business");
     }
-    // Auto-onboard users who interact directly — don't block on DM onboarding
-    if (!vanduraUser.onboardedAt) {
-      vanduraUser = await userManager.markOnboarded(vanduraUser.id);
-    }
-
     const executor = new ToolExecutor({
       approvalEngine, auditLogger, taskId: task.id,
       initiatorSlackId: user, checkerSlackId: null,

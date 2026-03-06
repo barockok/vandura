@@ -15,10 +15,6 @@ export class PermissionService {
       return { allowed: false, reason: "User account is inactive." };
     }
 
-    if (!user.onboardedAt) {
-      return { allowed: false, reason: "User has not completed onboarding." };
-    }
-
     // Check per-user overrides first
     const override = user.toolOverrides[toolName];
     if (override?.blocked) {

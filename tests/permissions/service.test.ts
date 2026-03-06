@@ -103,11 +103,10 @@ describe("PermissionService", () => {
     expect(result.reason).toContain("inactive");
   });
 
-  it("denies non-onboarded users", () => {
+  it("allows non-onboarded users (shared tools don't require onboarding)", () => {
     const user = makeUser({ onboardedAt: null });
     const result = svc.checkToolAccess(user, "db_query", 1);
-    expect(result.allowed).toBe(false);
-    expect(result.reason).toContain("onboard");
+    expect(result.allowed).toBe(true);
   });
 
   it("returns available tools for a role", () => {

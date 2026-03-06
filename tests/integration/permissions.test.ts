@@ -40,15 +40,15 @@ describe("Permission + Onboarding integration", () => {
   });
 
   it("full onboarding → permission check flow", async () => {
-    // 1. Create user (simulating onboarding)
+    // 1. Create user (not yet onboarded)
     const user = await userMgr.findOrCreate("U_INTEG", "Integration User", "pm");
     expect(user.onboardedAt).toBeNull();
 
-    // 2. Non-onboarded user is denied
-    const denied = permSvc.checkToolAccess(user, "db_query", 1);
-    expect(denied.allowed).toBe(false);
+    // 2. Non-onboarded user can still access shared tools (role/tier gates apply)
+    const allowedBeforeOnboard = permSvc.checkToolAccess(user, "db_query", 1);
+    expect(allowedBeforeOnboard.allowed).toBe(true);
 
-    // 3. Mark onboarded
+    // 3. Mark onboarded (for role selection, not access gating)
     const onboarded = await userMgr.markOnboarded(user.id);
 
     // 4. PM can use db_query at tier 1
