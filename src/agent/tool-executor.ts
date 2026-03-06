@@ -1,6 +1,8 @@
 import type { ApprovalEngine } from "../approval/engine.js";
 import type { AuditLogger } from "../audit/logger.js";
+import type { PermissionService } from "../permissions/service.js";
 import type { ToolResult } from "../tools/types.js";
+import type { VanduraUser } from "../users/types.js";
 
 type ToolRunnerFn = (input: Record<string, unknown>) => Promise<ToolResult>;
 
@@ -18,6 +20,8 @@ interface ToolExecutorConfig {
   initiatorSlackId: string;
   checkerSlackId: string | null;
   toolRunners: Record<string, ToolRunnerFn>;
+  permissionService?: PermissionService;
+  initiatorUser?: VanduraUser;
 }
 
 export class ToolExecutor {
@@ -41,6 +45,26 @@ export class ToolExecutor {
     }
 
     const classification = this.config.approvalEngine.classify(toolName, toolInput);
+
+    if (this.config.permissionService && this.config.initiatorUser) {
+      const access = this.config.permissionService.checkToolAccess(
+        this.config.initiatorUser,
+        toolName,
+        classification.tier,
+      );
+      if (!access.allowed) {
+        await this.config.auditLogger.log({
+          taskId: this.config.taskId,
+          action: "tool_denied",
+          actor: this.config.initiatorSlackId,
+          detail: { toolName, tier: classification.tier, reason: access.reason },
+        });
+        return {
+          output: `Permission denied: ${access.reason}`,
+          isError: true,
+        };
+      }
+    }
 
     if (!classification.requiresApproval) {
       // Tier 1: auto-execute
