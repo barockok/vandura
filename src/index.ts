@@ -11,7 +11,15 @@ async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): P
 async function main() {
   const startupTimeout = parseInt(process.env.STARTUP_TIMEOUT_MS ?? "30000", 10);
   const app = await withTimeout(createApp(), startupTimeout, "createApp");
-  await withTimeout(app.start(), startupTimeout, "app.start");
+
+  try {
+    await withTimeout(app.start(), startupTimeout, "app.start");
+  } catch (err) {
+    // Clean up Socket Mode connection on startup failure
+    try { await app.stop(); } catch { /* best effort */ }
+    throw err;
+  }
+
   console.log("Vandura is running!");
 
   let shuttingDown = false;
