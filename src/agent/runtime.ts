@@ -52,9 +52,9 @@ export class AgentRuntime {
 
     const guardrails: Record<string, string> = {};
     for (const [tool, policy] of Object.entries(config.toolPolicies)) {
-      if (policy.guardrails) {
-        guardrails[tool] = policy.guardrails;
-      }
+      if (tool === "_default") continue;
+      const tierLabel = `[Tier ${policy.tier}] `;
+      guardrails[tool] = tierLabel + (policy.guardrails ?? "");
     }
 
     this.systemPrompt = buildSystemPrompt({
