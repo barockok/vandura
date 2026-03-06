@@ -6,6 +6,36 @@ Vandura is a Slack-integrated AI agent system that gives non-technical team memb
 
 Built on the **Anthropic Claude Agent SDK** with **MCP (Model Context Protocol)** servers for integrations. Any off-the-shelf MCP server can be plugged in and wrapped with configurable approval policies.
 
+## Implementation Status (as of 2026-03-06)
+
+| § | Section | Status | Notes |
+|---|---------|--------|-------|
+| 1 | Conversation & Thread Model | **Done** | Thread per task, initiator/checker, task close with summary + token usage |
+| 2 | Tiered Autonomy & Approval | **Done** | Tier 1/2/3 classification, tool policies with guardrails, per-task approval reuse (approve once, follow-up actions auto-execute) |
+| 3 | Agent Pool & Personas | **Partial** | Single agent working end-to-end. Multi-agent with separate bot tokens per persona not yet implemented |
+| 4 | System Architecture | **Done** | All core components wired: gateway, thread manager, approval engine, agent runtime, tool executor, permission service |
+| 5 | Permission & Onboarding | **Done** | Role-based permissions, DM onboarding flow, tool overrides. Shared tools (e.g. database) don't gate on onboarding |
+| 6 | Credential Security | **Partial** | Local KMS + credential manager implemented. Per-user OAuth (Confluence, Google) and external KMS (GCP, Vault) not yet wired |
+| 7 | GCS/S3 Upload & Results | **Done** | S3-compatible storage (MinIO for dev, S3/GCS for prod), signed URLs, large response upload |
+| 8 | Data Model | **Done** | All tables created, migration versioning fixed, token usage columns added |
+| 9 | Testing & CI/CD | **Partial** | 138 unit/integration tests across 24 files, GitHub Actions CI (lint + typecheck + tests). E2E docker-compose and Slack test harness not yet built |
+| 10 | Deployment Guide | **Partial** | K8s manifests exist, README with setup guide. Migration job manifest and some doc details need updating |
+| 11 | Thread Persistence & Lifecycle | **Not started** | Design documented. Thread reconnection, auto-stale, memory eviction all pending |
+| 12 | Build vs Buy | **N/A** | Reference section |
+
+### Additional improvements shipped (not in original design)
+- Slack-native formatting (slackify-markdown + prompt-level formatting instructions)
+- Natural conversational tone in agent responses
+- Task clarification flow (agent asks questions before acting on vague requests)
+- Token usage tracking per task (input/output tokens stored in DB, shown in task summary)
+- Deferred checker nomination (only asks for checker when tier-3 action is actually needed)
+- Graceful shutdown with force timeout
+- Duplicate mention deduplication
+- Current date injection in system prompt
+- Sample NovaCRM database for testing
+
+---
+
 ## Core Principles
 
 - **Transparency** — all interactions happen in channels (private or public), never DMs. Everyone in the channel can see what the agent is doing.
