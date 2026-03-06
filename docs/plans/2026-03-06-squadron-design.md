@@ -6,7 +6,7 @@ Vandura is a Slack-integrated AI agent system that gives non-technical team memb
 
 Built on the **Anthropic Claude Agent SDK** with **MCP (Model Context Protocol)** servers for integrations. Any off-the-shelf MCP server can be plugged in and wrapped with configurable approval policies.
 
-## Implementation Status (as of 2026-03-06 10:30 UTC+7)
+## Implementation Status (as of 2026-03-06 19:50 UTC+7)
 
 | § | Section | Status | Notes |
 |---|---------|--------|-------|
@@ -16,12 +16,16 @@ Built on the **Anthropic Claude Agent SDK** with **MCP (Model Context Protocol)*
 | 4 | System Architecture | **Done** | All core components wired: gateway, thread manager, approval engine, agent runtime, tool executor, permission service |
 | 5 | Permission & Onboarding | **Done** | Role-based permissions, DM onboarding flow, tool overrides. Shared tools (e.g. database) don't gate on onboarding |
 | 6 | Credential Security | **Partial** | Local KMS + credential manager implemented. Per-user OAuth (Confluence, Google) and external KMS (GCP, Vault) not yet wired |
-| 7 | GCS/S3 Upload & Results | **Done** | S3-compatible storage (MinIO for dev, S3/GCS for prod), signed URLs, large response upload |
+| 7 | GCS/S3 Upload & Results | **Done** | S3-compatible storage (MinIO for dev, S3/GCS for prod), signed URLs, large response upload, file export tool |
 | 8 | Data Model | **Done** | All tables created, migration versioning fixed, token usage columns added |
 | 9 | Testing & CI/CD | **Partial** | 138 unit/integration tests across 24 files, GitHub Actions CI (lint + typecheck + tests). E2E docker-compose and Slack test harness not yet built |
 | 10 | Deployment Guide | **Partial** | K8s manifests exist, README with setup guide. Migration job manifest and some doc details need updating |
 | 11 | Thread Persistence & Lifecycle | **Not started** | Design documented. Thread reconnection, auto-stale, memory eviction all pending |
-| 12 | Build vs Buy | **N/A** | Reference section |
+| 12 | Swarm Architecture | **Not started** | Multi-agent collaboration, scheduler, task-as-plan with phased approvals |
+| 13 | Enhanced Onboarding | **Not started** | Permission-aware onboarding, multiple agent role types |
+| 14 | MCP Connection Management | **Not started** | Shared vs per-user connections, OAuth maintenance, chat-based config |
+| 15 | Management & Governance | **Not started** | Token limits, channel-specific deploy, scheduled tasks, memory management |
+| 16 | Build vs Buy | **N/A** | Reference section |
 
 ### Additional improvements shipped (not in original design)
 - Slack-native formatting (slackify-markdown + prompt-level formatting instructions)
@@ -1042,7 +1046,133 @@ ALTER TABLE tasks
 
 ---
 
-## 12. Build vs Buy Summary
+## 12. Swarm Architecture (Future Phase)
+
+### Multi-Agent Collaboration
+
+Instead of one agent per task, Vandura evolves into a swarm where multiple specialized agents collaborate on complex tasks.
+
+#### Agent Roles & Specialization
+
+Each agent has a specific role (data analyst, doc writer, API operator, etc.). When a task spans multiple domains, agents hand off sub-tasks to each other:
+
+- User asks Atlas (data analyst) for a quarterly report
+- Atlas queries the database, then delegates the write-up to Scribe (doc writer)
+- Scribe creates the Confluence page, loops back to Atlas for verification
+
+#### Scheduler
+
+A scheduler component manages agent availability and task routing:
+
+- Tracks which agents are busy vs available
+- Routes incoming requests to the best-fit agent based on role and tools
+- Manages a **task queue** — when all agents are busy, tells the user they're in queue with an estimated wait time, then spawns the task when an agent becomes available
+
+#### Task as Plan
+
+Complex tasks are treated as plans rather than single actions:
+
+- **Auto-detect complexity**: Determine whether a request is a quick one-shot task or a long-running plan that needs breakdown
+- **Plan breakdown**: For complex tasks, break into sub-steps with a plan that gets approval from the manager/initiator before execution
+- **Series of approvals**: Long-running plans may need approval at each phase, not just once upfront
+
+---
+
+## 13. Enhanced Onboarding (Future Phase)
+
+### Permission-Aware Onboarding
+
+The onboarding flow should be more than just role selection — it should explicitly ask about permissions and tool access:
+
+1. User joins channel → DM onboarding starts
+2. Ask what role they have (PM, Engineering, Business)
+3. Ask what tools they need access to (which MCP servers)
+4. Ask what permissions they need (read-only vs read-write on specific resources)
+5. For per-user OAuth tools, guide them through the connection flow
+6. Confirm setup and notify channel admins if elevated access was requested
+
+### Multiple AI Agent Role Types
+
+Different agent types serve different purposes beyond just tool specialization:
+
+- **Worker agents** — execute tasks (current model)
+- **Supervisor agents** — review and approve worker output before delivery
+- **Scheduler agents** — manage task queues and routing
+
+---
+
+## 14. MCP Connection Management (Future Phase)
+
+### Shared vs Per-User MCP Connections
+
+| Type | Examples | Auth | Guardrails |
+|------|----------|------|------------|
+| **Shared** | Database, Grafana, Elastic Search | Service account, admin-managed | Be conservative, no full scans, pipe large results to GCS, beware of token usage |
+| **Per-user** | Confluence, Google Docs, Jira | OAuth per individual | User-scoped, token refresh needed |
+
+### Guardrails for Shared Resources
+
+Shared MCP connections need stricter guardrails since they use a single service account:
+
+- **Be conservative** — prefer smaller scopes, limit result sets
+- **No full scans** — enforce indexed queries, reject sequential scans on large tables
+- **Pipe to GCS for results** — large result sets should always be uploaded, not streamed inline
+- **Beware of token usage** — shared connections consume from a shared budget
+
+### OAuth Maintenance Challenge
+
+Per-user OAuth connections have a lifecycle problem:
+
+- Tokens expire if the user doesn't interact for a long time
+- Refresh tokens may also expire with some providers
+- Need a strategy for re-prompting users to reconnect when tokens go stale
+- Consider a health check that periodically validates OAuth tokens and notifies users of expiring connections
+
+### Chat-Based MCP Configuration
+
+Admins should be able to add new MCP servers or define guardrails via chat:
+
+- `@sentinel add mcp-server elasticsearch --endpoint=https://...`
+- `@sentinel set guardrail db_query "no full table scans on tables > 1M rows"`
+- Output is a config file (YAML) that can be reviewed and applied to update the deployment manually
+- This keeps the config-as-code approach while allowing conversational setup
+
+---
+
+## 15. Management & Governance (Future Phase)
+
+### Token Usage Management
+
+- **Token usage monitor** — integrate with Grafana for dashboards showing usage per user, per agent, per task
+- **Token limits per user** — configurable limits with time frame (e.g., 100k tokens/day) or cooldown period after hitting the limit
+- **Budget alerts** — notify admins when usage approaches thresholds
+
+### Channel-Specific Deployment
+
+- Each channel can have its own set of agents and tool policies
+- **Real user supervisor per channel** — a designated person who oversees agent activity in that channel
+- Different channels can have different approval requirements and guardrails
+
+### Audit Governance
+
+- **Message deletion handling** — if a user deletes a Slack message, the task and audit trail must remain intact in the database. The audit log is immutable regardless of Slack state.
+- **Task and audit governance** — all actions are logged and cannot be retroactively altered
+
+### Scheduled Tasks
+
+- Users can schedule recurring tasks: `@atlas run this query every Monday at 9am`
+- Scheduled tasks follow the same approval flow on first setup, then auto-execute on schedule
+- Results posted to the configured channel thread
+
+### Memory Management
+
+- **Long-term memory compression** — regularly compress conversation history to stay within context windows
+- For long-running tasks, periodically summarize earlier conversation turns and replace verbose history with compressed summaries
+- Preserves key decisions and context while keeping token usage bounded
+
+---
+
+## 16. Build vs Buy Summary
 
 | Component | Approach |
 |---|---|
@@ -1058,7 +1188,7 @@ Reference: [claude-code-slack-bot](https://github.com/mpociot/claude-code-slack-
 
 ---
 
-## 13. Key References
+## 17. Key References
 
 - [Anthropic Claude Agent SDK (TypeScript)](https://github.com/anthropics/claude-agent-sdk-typescript)
 - [Claude Agent SDK MCP Docs](https://platform.claude.com/docs/en/agent-sdk/mcp)
