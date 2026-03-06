@@ -1,8 +1,17 @@
 import { createApp } from "./app.js";
 
+async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: NodeJS.Timeout;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer!));
+}
+
 async function main() {
-  const app = await createApp();
-  await app.start();
+  const startupTimeout = parseInt(process.env.STARTUP_TIMEOUT_MS ?? "30000", 10);
+  const app = await withTimeout(createApp(), startupTimeout, "createApp");
+  await withTimeout(app.start(), startupTimeout, "app.start");
   console.log("Vandura is running!");
 
   let shuttingDown = false;
