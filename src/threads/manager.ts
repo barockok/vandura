@@ -69,6 +69,19 @@ export class ThreadManager {
     return result.rows.map((row: Record<string, unknown>) => this.rowToMessage(row));
   }
 
+  async addTokenUsage(
+    taskId: string,
+    inputTokens: number,
+    outputTokens: number,
+  ): Promise<void> {
+    await this.pool.query(
+      `UPDATE tasks
+       SET input_tokens = input_tokens + $1, output_tokens = output_tokens + $2
+       WHERE id = $3`,
+      [inputTokens, outputTokens, taskId],
+    );
+  }
+
   async closeTask(
     taskId: string,
     status: "completed" | "cancelled"
@@ -94,6 +107,8 @@ export class ThreadManager {
       checkerSlackId: row.checker_slack_id ?? null,
       topic: row.topic ?? null,
       status: row.status,
+      inputTokens: Number(row.input_tokens ?? 0),
+      outputTokens: Number(row.output_tokens ?? 0),
       createdAt: row.created_at,
       closedAt: row.closed_at ?? null,
     };

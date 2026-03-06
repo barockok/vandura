@@ -110,4 +110,4 @@ CREATE TABLE audit_log (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-INSERT INTO schema_migrations (version) VALUES (1);
+-- Version tracking is handled by runMigrations

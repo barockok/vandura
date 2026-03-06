@@ -7,6 +7,8 @@ export interface Task {
   checkerSlackId: string | null;
   topic: string | null;
   status: "open" | "completed" | "cancelled";
+  inputTokens: number;
+  outputTokens: number;
   createdAt: Date;
   closedAt: Date | null;
 }

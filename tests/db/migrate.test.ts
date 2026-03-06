@@ -45,9 +45,9 @@ describe("runMigrations", () => {
     // First run already happened in previous test
     await expect(runMigrations(pool)).resolves.not.toThrow();
 
-    // Verify schema_migrations has exactly one row with version 1
-    const result = await pool.query("SELECT version FROM schema_migrations");
-    expect(result.rows).toHaveLength(1);
+    // Verify schema_migrations tracks all applied migrations
+    const result = await pool.query("SELECT version FROM schema_migrations ORDER BY version");
+    expect(result.rows.length).toBeGreaterThanOrEqual(1);
     expect(result.rows[0].version).toBe(1);
   });
 });

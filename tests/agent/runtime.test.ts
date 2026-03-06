@@ -32,16 +32,20 @@ describe("AgentRuntime", () => {
     runtime = new AgentRuntime(baseConfig);
   });
 
+  const mockUsage = { input_tokens: 100, output_tokens: 50 };
+
   it("returns text response when no tool calls", async () => {
     const mockCreate = vi.fn().mockResolvedValue({
       content: [{ type: "text", text: "Hello!" }],
       stop_reason: "end_turn",
+      usage: mockUsage,
     });
     (runtime as any).client.messages.create = mockCreate;
 
     const result = await runtime.chat("hi");
     expect(result.text).toBe("Hello!");
     expect(result.toolCalls).toEqual([]);
+    expect(result.usage).toEqual({ inputTokens: 100, outputTokens: 50 });
   });
 
   it("invokes tool executor when Claude requests tool use", async () => {
@@ -52,10 +56,12 @@ describe("AgentRuntime", () => {
           { type: "tool_use", id: "call_1", name: "db_query", input: { sql: "SELECT 1" } },
         ],
         stop_reason: "tool_use",
+        usage: { input_tokens: 200, output_tokens: 80 },
       })
       .mockResolvedValueOnce({
         content: [{ type: "text", text: "The result is 1." }],
         stop_reason: "end_turn",
+        usage: { input_tokens: 300, output_tokens: 60 },
       });
 
     (runtime as any).client.messages.create = mockCreate;
@@ -73,12 +79,14 @@ describe("AgentRuntime", () => {
       input: { sql: "SELECT 1" },
     });
     expect(mockCreate).toHaveBeenCalledTimes(2);
+    expect(result.usage).toEqual({ inputTokens: 500, outputTokens: 140 });
   });
 
   it("passes tool definitions to the API", async () => {
     const mockCreate = vi.fn().mockResolvedValue({
       content: [{ type: "text", text: "Done." }],
       stop_reason: "end_turn",
+      usage: mockUsage,
     });
     (runtime as any).client.messages.create = mockCreate;
 
@@ -98,6 +106,7 @@ describe("AgentRuntime", () => {
         { type: "tool_use", id: "call_x", name: "db_query", input: { sql: "SELECT 1" } },
       ],
       stop_reason: "tool_use",
+      usage: mockUsage,
     });
     (runtime as any).client.messages.create = mockCreate;
 
@@ -114,10 +123,12 @@ describe("AgentRuntime", () => {
           { type: "tool_use", id: "call_err", name: "db_query", input: { sql: "BAD" } },
         ],
         stop_reason: "tool_use",
+        usage: mockUsage,
       })
       .mockResolvedValueOnce({
         content: [{ type: "text", text: "Sorry, error." }],
         stop_reason: "end_turn",
+        usage: mockUsage,
       });
     (runtime as any).client.messages.create = mockCreate;
 

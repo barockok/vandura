@@ -37,6 +37,10 @@ export async function runMigrations(pool: pg.Pool): Promise<void> {
 
     const sql = fs.readFileSync(path.join(migrationsDir, file), "utf-8");
     await pool.query(sql);
+    await pool.query(
+      "INSERT INTO schema_migrations (version) VALUES ($1)",
+      [version],
+    );
     console.log(`Applied migration ${file}`);
   }
 }

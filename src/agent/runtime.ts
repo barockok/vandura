@@ -15,6 +15,11 @@ export interface ChatOptions {
   maxToolRounds?: number;
 }
 
+export interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+}
+
 export interface ChatResult {
   text: string;
   toolCalls: Array<{
@@ -24,6 +29,7 @@ export interface ChatResult {
     output: string;
     isError?: boolean;
   }>;
+  usage: TokenUsage;
 }
 
 interface AgentRuntimeConfig {
@@ -62,6 +68,7 @@ export class AgentRuntime {
   async chat(userMessage: string, options?: ChatOptions): Promise<ChatResult> {
     const maxRounds = options?.maxToolRounds ?? 10;
     const toolCalls: ChatResult["toolCalls"] = [];
+    const usage: TokenUsage = { inputTokens: 0, outputTokens: 0 };
 
     this.conversationHistory.push({ role: "user", content: userMessage });
 
@@ -82,6 +89,8 @@ export class AgentRuntime {
       }
 
       const response = await this.client.messages.create(params);
+      usage.inputTokens += response.usage.input_tokens;
+      usage.outputTokens += response.usage.output_tokens;
 
       const textParts = response.content
         .filter((b): b is Anthropic.TextBlock => b.type === "text")
@@ -93,7 +102,7 @@ export class AgentRuntime {
       if (toolUseBlocks.length === 0 || response.stop_reason !== "tool_use") {
         const finalText = textParts.join("");
         this.conversationHistory.push({ role: "assistant", content: finalText });
-        return { text: finalText, toolCalls };
+        return { text: finalText, toolCalls, usage };
       }
 
       if (round === maxRounds) {

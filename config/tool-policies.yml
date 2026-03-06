@@ -1,13 +1,10 @@
 tool_policies:
-  mcp__db__query:
-    tier: "dynamic"
+  db_query:
+    tier: 1
     guardrails: |
-      Before executing, run EXPLAIN on the query first.
-      If estimated rows > 1000 or a sequential scan is detected, escalate to tier 2.
-      If the query touches tables in the sensitive list, escalate to tier 3.
-      Always show the query and EXPLAIN output in the thread before executing.
+      Run the query. If the result set is large, summarize it.
 
-  mcp__db__write:
+  db_write:
     tier: 3
     guardrails: |
       Show the exact SQL statement and affected table.

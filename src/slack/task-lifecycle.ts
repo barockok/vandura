@@ -5,6 +5,8 @@ interface SummaryParams {
   toolCallCount: number;
   approvalCount: number;
   duration: string;
+  inputTokens: number;
+  outputTokens: number;
 }
 
 export class TaskLifecycle {
@@ -28,6 +30,7 @@ export class TaskLifecycle {
       `\u2022 ${params.toolCallCount} tool calls executed`,
       `\u2022 ${params.approvalCount} approval(s) processed`,
       `\u2022 Duration: ${params.duration}`,
+      `\u2022 Tokens: ${params.inputTokens.toLocaleString()} in / ${params.outputTokens.toLocaleString()} out`,
       ``,
       `_Task ID: ${params.taskId}_`,
     ].join("\n");

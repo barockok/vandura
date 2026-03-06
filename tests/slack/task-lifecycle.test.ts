@@ -25,10 +25,14 @@ describe("TaskLifecycle", () => {
       toolCallCount: 3,
       approvalCount: 1,
       duration: "5m 30s",
+      inputTokens: 1234,
+      outputTokens: 567,
     });
     expect(summary).toContain("completed");
     expect(summary).toContain("8 messages");
     expect(summary).toContain("3 tool calls");
     expect(summary).toContain("1 approval");
+    expect(summary).toContain("1,234 in");
+    expect(summary).toContain("567 out");
   });
 });

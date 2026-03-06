@@ -157,6 +157,7 @@ export async function createApp() {
     await threadManager.addMessage(task.id, "assistant", response.text, {
       toolCalls: response.toolCalls,
     });
+    await threadManager.addTokenUsage(task.id, response.usage.inputTokens, response.usage.outputTokens);
 
     // Convert Markdown to Slack mrkdwn before sending
     const slackText = markdownToSlack(response.text);
@@ -181,7 +182,7 @@ export async function createApp() {
       action: "mention_received", actor: user, detail: { text, channel },
     });
 
-    await say({ text: "I'm on it! Let me look into this...", thread_ts: ts });
+    await say({ text: "On it 👀", thread_ts: ts });
 
     const task = await threadManager.createTask({
       slackThreadTs: ts, slackChannel: channel, agentId, initiatorSlackId: user,
@@ -252,10 +253,13 @@ export async function createApp() {
       const approvalCount = (await approvalEngine.getPendingByTask(task.id)).length;
       const duration = formatDuration(task.createdAt, new Date());
 
+      const closedTask = await threadManager.findByThread(channel, thread_ts);
       const summary = taskLifecycle.buildSummary({
         taskId: task.id, status: closeCommand,
         messageCount: messages.length, toolCallCount,
         approvalCount, duration,
+        inputTokens: closedTask?.inputTokens ?? 0,
+        outputTokens: closedTask?.outputTokens ?? 0,
       });
       await say({ text: summary, thread_ts });
       return;
@@ -311,10 +315,11 @@ export async function createApp() {
           return;
         }
 
-        // Approved — execute the tool
+        // Approved — execute the tool and remember this tier for the task
         await say({ text: "✅ Approved. Executing...", thread_ts });
         const executor = activeExecutors.get(thread_ts);
         if (!executor) return;
+        executor.markApproved(pending.tier);
 
         const toolResult = await executor.executeApproved(
           pending.toolName, pending.toolInput, user,

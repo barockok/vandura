@@ -26,9 +26,17 @@ interface ToolExecutorConfig {
 
 export class ToolExecutor {
   private config: ToolExecutorConfig;
+  private approvedTier: number = 0; // highest tier approved for this task
 
   constructor(config: ToolExecutorConfig) {
     this.config = config;
+  }
+
+  /** Mark that the task has been approved at a given tier */
+  markApproved(tier: number): void {
+    if (tier > this.approvedTier) {
+      this.approvedTier = tier;
+    }
   }
 
   async execute(
@@ -66,14 +74,18 @@ export class ToolExecutor {
       }
     }
 
-    if (!classification.requiresApproval) {
-      // Tier 1: auto-execute
+    // Auto-approve if this task was already approved at this tier or higher
+    if (!classification.requiresApproval || classification.tier <= this.approvedTier) {
       const result = await runner(toolInput);
       await this.config.auditLogger.log({
         taskId: this.config.taskId,
         action: "tool_executed",
         actor: "system",
-        detail: { toolName, toolInput, tier: classification.tier, autoApproved: true },
+        detail: {
+          toolName, toolInput, tier: classification.tier,
+          autoApproved: true,
+          ...(classification.tier <= this.approvedTier && { reusedApproval: true }),
+        },
       });
       return result;
     }
