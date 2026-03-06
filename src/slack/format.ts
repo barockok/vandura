@@ -7,25 +7,11 @@ import { slackifyMarkdown } from "slackify-markdown";
 export function markdownToSlack(markdown: string): string {
   if (!markdown) return markdown;
 
-  // Preserve existing Slack-native links (<url|label>) from being mangled
-  const slackLinks: string[] = [];
-  const preserved = markdown.replace(/<(https?:\/\/[^>|]+)\|([^>]+)>/g, (_match, url, label) => {
-    const placeholder = `__SLACKLINK_${slackLinks.length}__`;
-    slackLinks.push(`<${url}|${label}>`);
-    return placeholder;
-  });
-
   // Pre-process: extract markdown tables and convert to code blocks
-  const withTables = convertTables(preserved);
+  // (slackify-markdown passes tables through as-is, which renders poorly in Slack)
+  const withTables = convertTables(markdown);
 
-  let result = slackifyMarkdown(withTables);
-
-  // Restore Slack-native links
-  for (let i = 0; i < slackLinks.length; i++) {
-    result = result.replace(`__SLACKLINK_${i}__`, slackLinks[i]);
-  }
-
-  return result;
+  return slackifyMarkdown(withTables);
 }
 
 /**
