@@ -6,7 +6,7 @@ Vandura is a Slack-integrated AI agent system that gives non-technical team memb
 
 Built on the **Anthropic Claude Agent SDK** with **MCP (Model Context Protocol)** servers for integrations. Any off-the-shelf MCP server can be plugged in and wrapped with configurable approval policies.
 
-## Implementation Status (as of 2026-03-06)
+## Implementation Status (as of 2026-03-06 10:30 UTC+7)
 
 | § | Section | Status | Notes |
 |---|---------|--------|-------|
