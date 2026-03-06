@@ -123,6 +123,13 @@ export async function createApp() {
         const result = await executor.execute(toolName, toolInput, toolUseId);
 
         if (result.needsApproval && result.approvalId && result.tier) {
+          // Tier 3 needs a checker — ask for one if not assigned yet
+          if (result.tier === 3 && !task.checkerSlackId && !pendingCheckerNomination.has(threadTs)) {
+            const checkerFlow = new CheckerFlow();
+            await say({ text: checkerFlow.buildNominationPrompt(), thread_ts: threadTs });
+            pendingCheckerNomination.add(threadTs);
+          }
+
           await approvalFlow.postApprovalRequest({
             say,
             threadTs,
@@ -214,13 +221,6 @@ export async function createApp() {
       },
     });
     activeExecutors.set(ts, executor);
-
-    const hasHighTierTools = Object.values(toolPolicies).some(p => p.tier === 3);
-    if (hasHighTierTools) {
-      const checkerFlow = new CheckerFlow();
-      await say({ text: checkerFlow.buildNominationPrompt(), thread_ts: ts });
-      pendingCheckerNomination.add(ts);
-    }
 
     const cleanText = text.replace(/<@[^>]+>/g, "").trim();
     await threadManager.addMessage(task.id, "user", cleanText, null);
