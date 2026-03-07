@@ -112,6 +112,36 @@ npm start
 
 ## Configuration
 
+### MCP Servers (`config/mcp-servers.yml`)
+
+Configure MCP server connections and tool mappings. Vandura connects to these servers at startup and discovers available tools:
+
+```yaml
+servers:
+  postgres:
+    name: "PostgreSQL"
+    type: "stdio"
+    command: "npx"
+    args:
+      - "-y"
+      - "@modelcontextprotocol/server-postgres"
+      - "${DATABASE_URL}"
+    tools:
+      - name: "query"
+        mapped_name: "db_query"
+        tier: 1
+        guardrails: "Prefer indexed queries. Avoid full table scans."
+      - name: "execute"
+        mapped_name: "db_write"
+        tier: 3
+        guardrails: "Show exact SQL and affected rows."
+```
+
+Supported transport types:
+- `stdio` — Run MCP server as a child process (e.g., via npx)
+- `sse` — Connect to remote MCP server via Server-Sent Events
+- `websocket` — Connect via WebSocket
+
 ### Tool Policies (`config/tool-policies.yml`)
 
 Wrap any MCP tool with approval tiers. Guardrails are plain-text prompts that Claude evaluates naturally — no tool-specific schema required:

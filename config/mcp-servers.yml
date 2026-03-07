@@ -1,0 +1,53 @@
+servers:
+  # PostgreSQL MCP Server - read/write database access
+  postgres:
+    name: "PostgreSQL"
+    type: "stdio"
+    command: "npx"
+    args:
+      - "-y"
+      - "@modelcontextprotocol/server-postgres"
+      - "${DATABASE_URL}"
+    tools:
+      # Read-only queries - auto-execute (tier 1)
+      - name: "query"
+        mapped_name: "db_query"
+        tier: 1
+        guardrails: |
+          Prefer indexed queries. Avoid full table scans on large tables.
+          For large result sets (>1000 rows), summarize or use pagination.
+      # Write operations - requires checker approval (tier 3)
+      - name: "execute"
+        mapped_name: "db_write"
+        tier: 3
+        guardrails: |
+          Show the exact SQL statement and affected table.
+          Estimate how many rows will be affected.
+          Never allow DROP or TRUNCATE without explicit confirmation.
+          Avoid full table updates without WHERE clause.
+
+  # Example: Confluence MCP (per-user OAuth)
+  # confluence:
+  #   name: "Confluence"
+  #   type: "sse"
+  #   endpoint: "https://your-instance.atlassian.net/wiki/mcp"
+  #   auth: "oauth"
+  #   tools:
+  #     - name: "get_page"
+  #       tier: 1
+  #     - name: "create_page"
+  #       tier: 2
+  #     - name: "update_page"
+  #       tier: 2
+
+  # Example: Google Drive MCP (per-user OAuth)
+  # gdrive:
+  #   name: "Google Drive"
+  #   type: "sse"
+  #   endpoint: "https://gdrive-mcp.internal/sse"
+  #   auth: "oauth"
+  #   tools:
+  #     - name: "search"
+  #       tier: 1
+  #     - name: "upload"
+  #       tier: 2

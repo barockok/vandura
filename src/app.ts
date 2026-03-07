@@ -10,6 +10,8 @@ import type { RolePermission } from "./config/types.js";
 import { createPool } from "./db/connection.js";
 import { runMigrations } from "./db/migrate.js";
 import { buildHealthCheck, startHealthServer } from "./health.js";
+import { McpManager } from "./mcp/manager.js";
+import type { DiscoveredTool } from "./mcp/types.js";
 import { PermissionService } from "./permissions/service.js";
 import { SlackApprovalFlow } from "./slack/approval-flow.js";
 import { CheckerFlow } from "./slack/checker-flow.js";
@@ -19,7 +21,6 @@ import { OnboardingFlow } from "./slack/onboarding-flow.js";
 import { TaskLifecycle } from "./slack/task-lifecycle.js";
 import { StorageService } from "./storage/s3.js";
 import { ThreadManager } from "./threads/manager.js";
-import { PostgresTool } from "./tools/postgres.js";
 import type { ToolResult } from "./tools/types.js";
 import { UploadFileTool } from "./tools/upload-file.js";
 import { UserManager } from "./users/manager.js";
@@ -56,9 +57,6 @@ export async function createApp() {
   const availableRoles = Object.keys(roles);
   const onboardingFlow = new OnboardingFlow(availableRoles);
 
-  // Target DB pool for the Postgres tool (may differ from app DB)
-  const toolDbPool = createPool(env.DB_TOOL_CONNECTION_URL);
-
   const agentConfig = agents[0];
   const agentRow = await pool.query(
     `INSERT INTO agents (name, role, tools, personality, system_prompt_extra, max_concurrent_tasks)
@@ -82,7 +80,11 @@ export async function createApp() {
   });
   await storage.ensureBucket();
 
-  const pgTool = new PostgresTool(toolDbPool);
+  // Initialize MCP Manager and load MCP servers
+  const mcpManager = new McpManager();
+  await mcpManager.load(path.join(configDir, "mcp-servers.yml"));
+  const discoveredTools = mcpManager.getDiscoveredTools();
+  console.log(`[MCP] Discovered ${discoveredTools.length} tools from MCP servers`);
 
   const slackApp = new App({
     token: env.SLACK_BOT_TOKEN,
@@ -119,8 +121,10 @@ export async function createApp() {
     threadTs: string,
     say: SayFn,
   ): Promise<void> {
+    // Build tools list from MCP discovered tools + local tools (upload_file)
+    const mcpToolDefs = discoveredTools.map((t) => t.definition);
     const chatOptions: ChatOptions = {
-      tools: [pgTool.definition(), pgTool.writeDefinition(), ...(activeUploadDefs.has(threadTs) ? [activeUploadDefs.get(threadTs)!] : [])],
+      tools: [...mcpToolDefs, ...(activeUploadDefs.has(threadTs) ? [activeUploadDefs.get(threadTs)!] : [])],
       toolExecutor: async (toolName, toolInput, toolUseId) => {
         const result = await executor.execute(toolName, toolInput, toolUseId);
 
@@ -281,16 +285,29 @@ export async function createApp() {
       initiatorUser: vanduraUser,
       toolRunners: {
         db_query: async (input) => {
-          const r = await pgTool.execute(input as { sql: string }, true);
-          return r.error
-            ? { output: r.error, isError: true }
-            : { output: JSON.stringify({ rows: r.rows, rowCount: r.rowCount, columns: r.columns }) };
+          try {
+            const result = await mcpManager.callTool("postgres", "query", input);
+            // Parse MCP response - expects { rows, columns, rowCount } format
+            const content = Array.isArray(result.content) ? result.content[0] : result.content;
+            return { output: JSON.stringify(content), isError: false };
+          } catch (err) {
+            return {
+              output: err instanceof Error ? err.message : "Unknown error",
+              isError: true
+            };
+          }
         },
         db_write: async (input) => {
-          const r = await pgTool.execute(input as { sql: string });
-          return r.error
-            ? { output: r.error, isError: true }
-            : { output: JSON.stringify({ rowCount: r.rowCount, columns: r.columns }) };
+          try {
+            const result = await mcpManager.callTool("postgres", "execute", input);
+            const content = Array.isArray(result.content) ? result.content[0] : result.content;
+            return { output: JSON.stringify(content), isError: false };
+          } catch (err) {
+            return {
+              output: err instanceof Error ? err.message : "Unknown error",
+              isError: true
+            };
+          }
         },
         upload_file: async (input) => {
           console.log(`[upload_file] Received input:`, JSON.stringify(input));
@@ -492,11 +509,11 @@ export async function createApp() {
       healthServer?.close();
       await slackApp.stop();
       await pool.end();
-      await toolDbPool.end();
+      await mcpManager.shutdown();
       console.log("Shutdown complete.");
     },
-    pool, toolDbPool, gateway, threadManager,
+    pool, gateway, threadManager,
     approvalEngine, auditLogger, storage, healthCheck,
-    userManager, permissionService, onboardingFlow,
+    userManager, permissionService, onboardingFlow, mcpManager,
   };
 }
