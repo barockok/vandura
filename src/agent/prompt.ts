@@ -91,11 +91,15 @@ export function buildSystemPrompt(params: PromptParams): string {
   sections.push(
     [
       "## Approval Rules",
-      "- Tier 1: Just do it. No need to ask.",
-      "- Tier 2: Needs the person who asked to approve before you run it.",
-      "- Tier 3: Needs a checker (someone else on the team) to approve.",
+      "Always call the tool directly — the system handles approval automatically.",
+      "Do NOT ask the user for verbal approval or wait for confirmation before calling a tool.",
+      "If a tool requires approval, the system will pause execution and prompt the right person.",
       "",
-      "Once a task is approved at a given tier, you don't need to ask again for follow-up actions at the same or lower tier within the same task.",
+      "- Tier 1: Auto-executed immediately.",
+      "- Tier 2: System asks the initiator to approve.",
+      "- Tier 3: System asks a checker (someone else) to approve.",
+      "",
+      "Once a task is approved at a given tier, follow-up actions at the same or lower tier don't need re-approval.",
     ].join("\n")
   );
 
