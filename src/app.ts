@@ -1,28 +1,28 @@
 import { App } from "@slack/bolt";
-import { env } from "./config/env.js";
-import { createPool } from "./db/connection.js";
-import { runMigrations } from "./db/migrate.js";
-import { loadToolPolicies, loadAgents, loadRoles } from "./config/loader.js";
-import { UserManager } from "./users/manager.js";
-import { PermissionService } from "./permissions/service.js";
-import { OnboardingFlow } from "./slack/onboarding-flow.js";
-import type { RolePermission } from "./config/types.js";
-import { SlackGateway } from "./slack/gateway.js";
-import { SlackApprovalFlow } from "./slack/approval-flow.js";
-import { ThreadManager } from "./threads/manager.js";
-import { ApprovalEngine } from "./approval/engine.js";
-import { AuditLogger } from "./audit/logger.js";
+import path from "node:path";
 import { AgentRuntime, type ChatOptions } from "./agent/runtime.js";
 import { ToolExecutor } from "./agent/tool-executor.js";
-import { CheckerFlow } from "./slack/checker-flow.js";
-import { TaskLifecycle } from "./slack/task-lifecycle.js";
-import { PostgresTool } from "./tools/postgres.js";
-import { UploadFileTool } from "./tools/upload-file.js";
-import { StorageService } from "./storage/s3.js";
-import { markdownToSlack } from "./slack/format.js";
+import { ApprovalEngine } from "./approval/engine.js";
+import { AuditLogger } from "./audit/logger.js";
+import { env } from "./config/env.js";
+import { loadAgents, loadRoles, loadToolPolicies } from "./config/loader.js";
+import type { RolePermission } from "./config/types.js";
+import { createPool } from "./db/connection.js";
+import { runMigrations } from "./db/migrate.js";
 import { buildHealthCheck, startHealthServer } from "./health.js";
+import { PermissionService } from "./permissions/service.js";
+import { SlackApprovalFlow } from "./slack/approval-flow.js";
+import { CheckerFlow } from "./slack/checker-flow.js";
+import { markdownToSlack } from "./slack/format.js";
+import { SlackGateway } from "./slack/gateway.js";
+import { OnboardingFlow } from "./slack/onboarding-flow.js";
+import { TaskLifecycle } from "./slack/task-lifecycle.js";
+import { StorageService } from "./storage/s3.js";
+import { ThreadManager } from "./threads/manager.js";
+import { PostgresTool } from "./tools/postgres.js";
 import type { ToolResult } from "./tools/types.js";
-import path from "node:path";
+import { UploadFileTool } from "./tools/upload-file.js";
+import { UserManager } from "./users/manager.js";
 
 interface PendingApproval {
   approvalId: string;
@@ -66,8 +66,8 @@ export async function createApp() {
      ON CONFLICT (name) DO UPDATE SET role = $2, tools = $3
      RETURNING id`,
     [agentConfig.name, agentConfig.role, JSON.stringify(agentConfig.tools),
-     agentConfig.personality ?? null, agentConfig.system_prompt_extra ?? null,
-     agentConfig.max_concurrent_tasks]
+    agentConfig.personality ?? null, agentConfig.system_prompt_extra ?? null,
+    agentConfig.max_concurrent_tasks]
   );
   const agentId: string = agentRow.rows[0].id;
 
@@ -178,7 +178,7 @@ export async function createApp() {
         content: Buffer.from(response.text),
         contentType: "text/plain",
       });
-      const preview = markdownToSlack(response.text.slice(0, 500)) + `...\n\n📎 Full response: <${signedUrl}>`;
+      const preview = markdownToSlack(response.text.slice(0, 500)) + `...\n\n📎 Full response: [Download](${signedUrl})`;
       await say({ text: preview, thread_ts: threadTs });
     } else {
       await say({ text: slackText, thread_ts: threadTs });

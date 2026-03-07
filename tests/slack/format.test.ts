@@ -48,6 +48,13 @@ describe("markdownToSlack", () => {
         "<https://img.com/logo.png|logo>",
       );
     });
+
+    it("converts links with complex URLs containing query params", () => {
+      const url = "http://localhost:9000/bucket/file.txt?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Signature=abc123";
+      expect(markdownToSlack(`[Download](${url})`)).toContain(
+        `<${url}|Download>`,
+      );
+    });
   });
 
   describe("headers", () => {

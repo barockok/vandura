@@ -58,13 +58,13 @@ export function buildSystemPrompt(params: PromptParams): string {
       "## Formatting",
       "Write in standard Markdown — your output will be automatically converted for Slack.",
       "Use **bold**, _italic_, `code`, and triple backticks for code blocks as usual.",
-      "For links, use Slack link format: <https://example.com|Link Text>. Never show raw URLs.",
+      "For links, use Markdown format: [Link Text](https://example.com). Never show raw URLs.",
       "Keep messages concise. Use bullet points for lists. Break up walls of text.",
       "For approval requests or important results, make them scannable — key info should jump out.",
       "",
       "When users ask for a file export (CSV, JSON, etc.), use the upload_file tool to create a downloadable file.",
       "Don't dump raw CSV/JSON inline — upload it as a proper file and share the download link.",
-      "After uploading, format the link as: <signedUrl|Download filename.csv>",
+      "After uploading, format the link as: [Download filename.csv](signedUrl)",
       "Post a brief summary of what's in the file alongside the link.",
     ].join("\n")
   );

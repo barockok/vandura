@@ -2,7 +2,7 @@ import { slackifyMarkdown } from "slackify-markdown";
 
 /**
  * Converts Markdown to Slack mrkdwn format using slackify-markdown,
- * with post-processing for tables (Slack has no native table support).
+ * with post-processing for tables (Slack has no native table support) and links.
  */
 export function markdownToSlack(markdown: string): string {
   if (!markdown) return markdown;
@@ -11,7 +11,18 @@ export function markdownToSlack(markdown: string): string {
   // (slackify-markdown passes tables through as-is, which renders poorly in Slack)
   const withTables = convertTables(markdown);
 
-  return slackifyMarkdown(withTables);
+  // Convert to Slack mrkdwn
+  let result = slackifyMarkdown(withTables);
+
+  // Post-process: convert Markdown links [text](url) to Slack format <url|text>
+  // Handle links with special characters in URLs (like & in query params)
+  result = result.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, text, url) => {
+    // Slack requires & to be escaped as &amp; in mrkdwn, but URLs already have &amp; from HTML escaping
+    // So we just need to wrap in Slack's <url|text> format
+    return `<${url}|${text}>`;
+  });
+
+  return result;
 }
 
 /**
