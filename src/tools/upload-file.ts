@@ -34,16 +34,27 @@ export class UploadFileTool {
     };
   }
 
-  async execute(input: {
-    filename: string;
-    content: string;
-    content_type: string;
-  }): Promise<{ signedUrl: string }> {
-    const key = `${this.taskId}/${input.filename}`;
+  async execute(input: Record<string, unknown>): Promise<{ signedUrl: string }> {
+    // Handle both snake_case and camelCase for content_type
+    const filename = input.filename as string;
+    const content = input.content as string;
+    const contentType = (input.content_type ?? input.contentType) as string;
+
+    if (!content) {
+      throw new Error(`upload_file: 'content' is required. Received: ${JSON.stringify(input)}`);
+    }
+    if (!filename) {
+      throw new Error(`upload_file: 'filename' is required. Received: ${JSON.stringify(input)}`);
+    }
+    if (!contentType) {
+      throw new Error(`upload_file: 'content_type' is required. Received: ${JSON.stringify(input)}`);
+    }
+
+    const key = `${this.taskId}/${filename}`;
     const { signedUrl } = await this.storage.upload({
       key,
-      content: Buffer.from(input.content),
-      contentType: input.content_type,
+      content: Buffer.from(content),
+      contentType,
     });
     return { signedUrl };
   }

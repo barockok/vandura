@@ -293,8 +293,20 @@ export async function createApp() {
             : { output: JSON.stringify({ rowCount: r.rowCount, columns: r.columns }) };
         },
         upload_file: async (input) => {
-          const r = await uploadTool.execute(input as { filename: string; content: string; content_type: string });
-          return { output: JSON.stringify(r) };
+          console.log(`[upload_file] Received input:`, JSON.stringify(input));
+          if (!input || typeof input !== 'object') {
+            return { output: `upload_file error: invalid input object - ${JSON.stringify(input)}`, isError: true };
+          }
+          try {
+            const r = await uploadTool.execute(input as { filename: string; content: string; content_type: string });
+            return { output: JSON.stringify(r) };
+          } catch (err) {
+            console.error(`[upload_file] Error:`, err);
+            return {
+              output: `upload_file error: ${err instanceof Error ? err.message : 'unknown error'}. Input was: ${JSON.stringify(input)}`,
+              isError: true
+            };
+          }
         },
       },
     });
