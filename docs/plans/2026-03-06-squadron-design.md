@@ -23,7 +23,7 @@ Built on the **Anthropic Claude Agent SDK** with **MCP (Model Context Protocol)*
 | 11 | Thread Persistence & Lifecycle | **Not started** | Design documented. Thread reconnection, auto-stale, memory eviction all pending |
 | 12 | Swarm Architecture | **Not started** | Multi-agent collaboration, scheduler, task-as-plan with phased approvals |
 | 13 | Enhanced Onboarding | **Not started** | Permission-aware onboarding, multiple agent role types |
-| 14 | MCP Connection Management | **Not started** | Shared vs per-user connections, OAuth maintenance, chat-based config |
+| 14 | MCP Connection Management | **Completed** | Shared vs per-user connection types, OAuth token refresh & health monitoring, chat-based MCP config, guardrails for shared resources |
 | 15 | Management & Governance | **Not started** | Token limits, channel-specific deploy, scheduled tasks, memory management |
 | 16 | Build vs Buy | **N/A** | Reference section |
 

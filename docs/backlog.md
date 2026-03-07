@@ -6,6 +6,30 @@ Items deferred from completed work, pending future implementation.
 
 ## Completed Work
 
+### §14 MCP Connection Management (2026-03-07)
+
+**Status**: ✅ Completed
+
+**Deliverables**:
+- `src/config/types.ts` - Added `connection_type` field to ToolPolicySchema
+- `src/approval/engine.ts` - Connection type classification, shared connection guardrails helper
+- `src/agent/prompt.ts` - System prompt section explaining shared vs per-user connections
+- `src/credentials/manager.ts` - OAuth token refresh, health monitoring, token storage
+- `src/health.ts` - OAuth health status in `/health` endpoint
+- `src/tools/mcp-config.ts` - Chat-based MCP server configuration tool
+- `src/db/migrations/003_oauth_health.sql` - Database schema for OAuth health monitoring
+- `config/tool-policies.yml` - Updated with connection_type for all tools
+- `README.md` - MCP Connection Management documentation section
+
+**Features implemented**:
+- Shared vs per-user connection types in tool policies
+- Guardrails for shared connections (no full scans, indexed queries, limit results, upload to GCS)
+- OAuth token automatic refresh before expiry
+- OAuth health check endpoint with status reporting (valid/expiring/expired/error)
+- Chat-based MCP configuration via `mcp_config` tool
+
+---
+
 ### §10 Deployment Guide (2026-03-07)
 
 **Status**: ✅ Completed

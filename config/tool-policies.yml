@@ -1,30 +1,78 @@
 tool_policies:
+  # Shared connections (service account, stricter guardrails)
   db_query:
     tier: 1
+    connection_type: shared
     guardrails: |
-      Run the query. If the result set is large, summarize it.
+      Run the query. If the result set is large (超过 1000 rows), summarize it.
+      Prefer indexed queries. Avoid full table scans on large tables.
+      For large result sets, use LIMIT/OFFSET or upload to GCS.
 
   db_write:
     tier: 3
+    connection_type: shared
     guardrails: |
       Show the exact SQL statement and affected table.
       Estimate how many rows will be affected.
-      Never allow DROP or TRUNCATE.
+      Never allow DROP or TRUNCATE without explicit confirmation.
+      Avoid full table updates without WHERE clause.
 
+  mcp__gcs__upload:
+    tier: 1
+    connection_type: shared
+
+  mcp__gcs__list:
+    tier: 1
+    connection_type: shared
+
+  mcp__grafana__query:
+    tier: 1
+    connection_type: shared
+
+  mcp__elastic__search:
+    tier: 1
+    connection_type: shared
+    guardrails: |
+      Use specific search queries. Avoid match_all on large indices.
+      Limit result set size with 'size' parameter.
+
+  # Per-user connections (OAuth, user-scoped)
   mcp__confluence__create_page:
     tier: 2
+    connection_type: per-user
     guardrails: |
       Confirm the target space and page title with the initiator.
       Show a preview of the content before creating.
 
-  upload_file:
+  mcp__confluence__get_page:
     tier: 1
+    connection_type: per-user
 
-  mcp__gcs__upload:
+  mcp__gdocs__create_document:
+    tier: 2
+    connection_type: per-user
+    guardrails: |
+      Confirm the document title and content structure before creating.
+
+  mcp__gdocs__get_document:
     tier: 1
+    connection_type: per-user
 
+  mcp__jira__create_issue:
+    tier: 2
+    connection_type: per-user
+    guardrails: |
+      Confirm the project, issue type, and summary before creating.
+
+  mcp__jira__search:
+    tier: 1
+    connection_type: per-user
+
+  # Default for unknown tools
   _default:
     tier: 2
+    connection_type: shared
     guardrails: |
       Describe what this tool will do and what parameters you are passing.
       Ask the initiator to confirm before proceeding.
+      For shared resources: be conservative, limit result sets, avoid expensive operations.

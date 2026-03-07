@@ -7,6 +7,15 @@ export interface ClassificationResult {
   requiresApproval: boolean;
   approver: "none" | "initiator" | "checker";
   guardrails: string | null;
+  connectionType: "shared" | "per-user";
+}
+
+export interface SharedConnectionGuardrails {
+  noFullTableScans: boolean;
+  requireIndexedQueries: boolean;
+  limitResultSets: boolean;
+  uploadLargeResultsToGcs: boolean;
+  conserveTokenUsage: boolean;
 }
 
 export class ApprovalEngine {
@@ -25,10 +34,12 @@ export class ApprovalEngine {
         requiresApproval: true,
         approver: "checker",
         guardrails: null,
+        connectionType: "shared",
       };
     }
 
     const tier = typeof policy.tier === "number" ? policy.tier : 3;
+    const connectionType = policy.connection_type ?? "shared";
 
     switch (tier) {
       case 1:
@@ -37,6 +48,7 @@ export class ApprovalEngine {
           requiresApproval: false,
           approver: "none",
           guardrails: policy.guardrails ?? null,
+          connectionType,
         };
       case 2:
         return {
@@ -44,6 +56,7 @@ export class ApprovalEngine {
           requiresApproval: true,
           approver: "initiator",
           guardrails: policy.guardrails ?? null,
+          connectionType,
         };
       case 3:
       default:
@@ -52,8 +65,24 @@ export class ApprovalEngine {
           requiresApproval: true,
           approver: "checker",
           guardrails: policy.guardrails ?? null,
+          connectionType,
         };
     }
+  }
+
+  getSharedConnectionGuardrails(toolName: string): SharedConnectionGuardrails | null {
+    const classification = this.classify(toolName, {});
+    if (classification.connectionType !== "shared") {
+      return null;
+    }
+    const guardrails = classification.guardrails ?? "";
+    return {
+      noFullTableScans: guardrails.includes("full table scan") || guardrails.includes("full scan"),
+      requireIndexedQueries: guardrails.includes("indexed"),
+      limitResultSets: guardrails.includes("LIMIT") || guardrails.includes("limit") || guardrails.includes("summarize"),
+      uploadLargeResultsToGcs: guardrails.includes("GCS") || guardrails.includes("upload"),
+      conserveTokenUsage: guardrails.includes("token") || guardrails.includes("conservative"),
+    };
   }
 
   classifyDynamic(
@@ -62,14 +91,15 @@ export class ApprovalEngine {
   ): ClassificationResult {
     const policy = this.policies[toolName] ?? this.policies["_default"];
     const guardrails = policy?.guardrails ?? null;
+    const connectionType = policy?.connection_type ?? "shared";
 
     if (metrics.estimatedRows > 50_000 || (metrics.estimatedRows > 10_000 && metrics.hasSeqScan)) {
-      return { tier: 3, requiresApproval: true, approver: "checker", guardrails };
+      return { tier: 3, requiresApproval: true, approver: "checker", guardrails, connectionType };
     }
     if (metrics.estimatedRows > 1000 || metrics.hasSeqScan) {
-      return { tier: 2, requiresApproval: true, approver: "initiator", guardrails };
+      return { tier: 2, requiresApproval: true, approver: "initiator", guardrails, connectionType };
     }
-    return { tier: 1, requiresApproval: false, approver: "none", guardrails };
+    return { tier: 1, requiresApproval: false, approver: "none", guardrails, connectionType };
   }
 
   async requestApproval(

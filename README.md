@@ -295,6 +295,76 @@ When a new member joins a channel where Vandura is deployed:
 3. User is created in the database and marked as onboarded
 4. Role determines which tools and approval tiers are available
 
+## MCP Connection Management
+
+Vandura supports two types of MCP connections:
+
+### Shared Connections
+
+Shared connections use a service account managed by the team. These include:
+- **Database** (`db_query`, `db_write`)
+- **GCS/MinIO** (`mcp__gcs__*`)
+- **Grafana** (`mcp__grafana__*`)
+- **Elasticsearch** (`mcp__elastic__*`)
+
+**Guardrails for shared connections:**
+- Be conservative: prefer smaller scopes, limit result sets
+- Avoid full table scans on large tables (use indexed queries)
+- For large results (>1000 rows), upload to GCS instead of inline display
+- Watch token usage — shared budget
+
+### Per-User Connections
+
+Per-user connections use OAuth tokens from individual users:
+- **Confluence** (`mcp__confluence__*`)
+- **Google Docs** (`mcp__gdocs__*`)
+- **Jira** (`mcp__jira__*`)
+
+**Characteristics:**
+- Actions are scoped to what that user can access
+- Tokens may expire; agent will attempt automatic refresh
+- If refresh fails, user will be notified to reconnect
+
+### Chat-Based Configuration
+
+Admins can configure MCP servers via chat commands using `@sentinel`:
+
+```
+@sentinel Use mcp_config to add_server with server_name=elastic, provider=elasticsearch, endpoint=https://es.example.com, connection_type=shared
+```
+
+```
+@sentinel Use mcp_config to set_guardrail with tool_name=db_query, guardrail="No full table scans on tables over 1M rows"
+```
+
+The agent will generate YAML configuration for manual review and application (config-as-code approach).
+
+### Health Monitoring
+
+The `/health` endpoint includes OAuth token status:
+
+```json
+{
+  "status": "ok",
+  "database": "connected",
+  "storage": "connected",
+  "oauth": {
+    "total": 15,
+    "valid": 12,
+    "expiring": 2,
+    "expired": 1
+  }
+}
+```
+
+**Token statuses:**
+- `valid`: Token is active and working
+- `expiring`: Token expires within 24 hours (warning)
+- `expired`: Token has expired (requires re-authentication)
+- `error`: Last refresh attempt failed
+
+---
+
 ## Testing
 
 ```bash

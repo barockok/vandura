@@ -4,6 +4,7 @@ export const ToolPolicySchema = z.object({
   tier: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal("dynamic")]),
   guardrails: z.string().nullable().optional(),
   checker: z.enum(["role-based", "peer-based", "any"]).optional().default("peer-based"),
+  connection_type: z.enum(["shared", "per-user"]).optional().default("shared"),
 });
 
 export const ToolPoliciesSchema = z.record(z.string(), ToolPolicySchema);
