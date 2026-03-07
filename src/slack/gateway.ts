@@ -33,7 +33,6 @@ export interface ActionPayload {
   threadTs: string | null;
   messageTs: string;
   respond: (message: { text: string; replace_original?: boolean }) => Promise<void>;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   say: SayFn;
 }
 

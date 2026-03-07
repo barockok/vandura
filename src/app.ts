@@ -394,7 +394,7 @@ export async function createApp() {
 
   // Handle approval button clicks
   const handleApprovalAction = async (
-    { user, value, channel, threadTs, respond, say }: import("./slack/gateway.js").ActionPayload,
+    { user, channel, threadTs, respond, say }: import("./slack/gateway.js").ActionPayload,
     decision: "approved" | "rejected",
   ) => {
     if (!threadTs) return;
