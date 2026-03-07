@@ -25,17 +25,6 @@ export interface MemberJoinedPayload {
   channel: string;
 }
 
-export interface ActionPayload {
-  user: string;
-  actionId: string;
-  value: string;
-  channel: string;
-  threadTs: string | null;
-  messageTs: string;
-  respond: (message: { text: string; replace_original?: boolean }) => Promise<void>;
-  say: SayFn;
-}
-
 export class SlackGateway {
   private botUserId: string | null = null;
   private processedMentions = new Set<string>();
@@ -117,38 +106,6 @@ export class SlackGateway {
         ts: msg.ts as string,
         thread_ts: msg.thread_ts as string,
         say: say as SayFn,
-      });
-    });
-  }
-
-  onAction(actionId: string, handler: (payload: ActionPayload) => void | Promise<void>): void {
-    this.app.action(actionId, async ({ body, ack, respond }) => {
-      await ack();
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const action = (body as any).actions?.[0];
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const message = (body as any).message;
-      const channelId = (body.channel?.id ?? "") as string;
-      const threadTs = message?.thread_ts ?? null;
-
-      // Build a say function from the Slack client
-      const sayFn: SayFn = async (msg) => {
-        if (typeof msg === "string") {
-          await this.app.client.chat.postMessage({ channel: channelId, text: msg });
-        } else {
-          await this.app.client.chat.postMessage({ channel: channelId, ...msg });
-        }
-      };
-
-      await handler({
-        user: body.user.id,
-        actionId: action?.action_id ?? actionId,
-        value: action?.value ?? "",
-        channel: channelId,
-        threadTs,
-        messageTs: message?.ts ?? "",
-        respond: respond as ActionPayload["respond"],
-        say: sayFn,
       });
     });
   }

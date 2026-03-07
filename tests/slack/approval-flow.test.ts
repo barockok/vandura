@@ -27,15 +27,8 @@ describe("SlackApprovalFlow", () => {
     const call = mockSay.mock.calls[0][0];
     expect(call.thread_ts).toBe("thread-1");
     expect(call.text).toContain("db_query");
-    expect(call.blocks).toBeDefined();
-    const blocksJson = JSON.stringify(call.blocks);
-    expect(blocksJson).toContain("<@U_INIT>");
-    expect(blocksJson).toContain("db_query");
-    // Has approve/reject buttons
-    const actions = call.blocks.find((b: { type: string }) => b.type === "actions");
-    expect(actions.elements).toHaveLength(2);
-    expect(actions.elements[0].text.text).toContain("Approve");
-    expect(actions.elements[1].text.text).toContain("Reject");
+    expect(call.text).toContain("<@U_INIT>");
+    expect(call.text).toContain("Tier 2");
   });
 
   it("posts tier 3 approval request mentioning checker", async () => {
@@ -51,9 +44,9 @@ describe("SlackApprovalFlow", () => {
     });
 
     const call = mockSay.mock.calls[0][0];
-    const blocksJson = JSON.stringify(call.blocks);
-    expect(blocksJson).toContain("<@U_CHECK>");
-    expect(blocksJson).toContain("DELETE FROM logs");
+    expect(call.text).toContain("<@U_CHECK>");
+    expect(call.text).toContain("DELETE FROM logs");
+    expect(call.text).toContain("Tier 3");
   });
 
   it("parses 'approve' reply as approved", () => {

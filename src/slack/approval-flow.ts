@@ -19,9 +19,6 @@ interface CanApproveParams {
   checkerSlackId: string | null;
 }
 
-export const APPROVAL_ACTION_APPROVE = "approval_approve";
-export const APPROVAL_ACTION_REJECT = "approval_reject";
-
 export class SlackApprovalFlow {
   async postApprovalRequest(params: ApprovalRequestParams): Promise<void> {
     const approverMention =
@@ -37,60 +34,11 @@ export class SlackApprovalFlow {
         ? inputSummary.slice(0, 500) + "..."
         : inputSummary;
 
-    const fallbackText = `⚠️ Approval Required (Tier ${params.tier}) — Tool: ${params.toolName}`;
+    const text = `⚠️ Approval Required (Tier ${params.tier}) — Tool: ${params.toolName}\n\nApprover: ${approverMention}\n\nInput:\n\`\`\`${truncatedInput}\`\`\``;
 
     await params.say({
-      text: fallbackText,
+      text,
       thread_ts: params.threadTs,
-      blocks: [
-        {
-          type: "section",
-          text: {
-            type: "mrkdwn",
-            text: `⚠️ *Approval Required (Tier ${params.tier})*`,
-          },
-        },
-        {
-          type: "section",
-          fields: [
-            { type: "mrkdwn", text: `*Tool:*\n\`${params.toolName}\`` },
-            { type: "mrkdwn", text: `*Approver:*\n${approverMention}` },
-          ],
-        },
-        {
-          type: "section",
-          text: {
-            type: "mrkdwn",
-            text: `*Input:*\n\`\`\`${truncatedInput}\`\`\``,
-          },
-        },
-        {
-          type: "actions",
-          block_id: `approval_${params.approvalId}`,
-          elements: [
-            {
-              type: "button",
-              text: { type: "plain_text", text: "✅ Approve" },
-              style: "primary",
-              action_id: APPROVAL_ACTION_APPROVE,
-              value: params.approvalId,
-            },
-            {
-              type: "button",
-              text: { type: "plain_text", text: "❌ Reject" },
-              style: "danger",
-              action_id: APPROVAL_ACTION_REJECT,
-              value: params.approvalId,
-            },
-          ],
-        },
-        {
-          type: "context",
-          elements: [
-            { type: "mrkdwn", text: `Approval ID: \`${params.approvalId}\`` },
-          ],
-        },
-      ],
     });
   }
 

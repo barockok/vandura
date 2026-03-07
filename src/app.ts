@@ -8,7 +8,7 @@ import { PermissionService } from "./permissions/service.js";
 import { OnboardingFlow } from "./slack/onboarding-flow.js";
 import type { RolePermission } from "./config/types.js";
 import { SlackGateway } from "./slack/gateway.js";
-import { SlackApprovalFlow, APPROVAL_ACTION_APPROVE, APPROVAL_ACTION_REJECT } from "./slack/approval-flow.js";
+import { SlackApprovalFlow } from "./slack/approval-flow.js";
 import { ThreadManager } from "./threads/manager.js";
 import { ApprovalEngine } from "./approval/engine.js";
 import { AuditLogger } from "./audit/logger.js";
@@ -192,7 +192,6 @@ export async function createApp() {
     userId: string,
     decision: "approved" | "rejected",
     say: SayFn,
-    respond?: (msg: { text: string; replace_original?: boolean }) => Promise<void>,
   ): Promise<void> {
     const pending = pendingApprovals.get(threadTs);
     if (!pending) return;
@@ -211,11 +210,7 @@ export async function createApp() {
       const msg = pending.tier === 2
         ? `Only <@${task.initiatorSlackId}> can approve this (tier 2).`
         : `Only the checker can approve this (tier 3).`;
-      if (respond) {
-        await respond({ text: msg, replace_original: false });
-      } else {
-        await say({ text: msg, thread_ts: threadTs });
-      }
+      await say({ text: msg, thread_ts: threadTs });
       return;
     }
 
@@ -391,18 +386,6 @@ export async function createApp() {
       await say({ text: errorMsg, thread_ts });
     }
   });
-
-  // Handle approval button clicks
-  const handleApprovalAction = async (
-    { user, channel, threadTs, respond, say }: import("./slack/gateway.js").ActionPayload,
-    decision: "approved" | "rejected",
-  ) => {
-    if (!threadTs) return;
-    await processApprovalDecision(channel, threadTs, user, decision, say, respond);
-  };
-
-  gateway.onAction(APPROVAL_ACTION_APPROVE, (payload) => handleApprovalAction(payload, "approved"));
-  gateway.onAction(APPROVAL_ACTION_REJECT, (payload) => handleApprovalAction(payload, "rejected"));
 
   gateway.onMemberJoined(async ({ user, channel }) => {
     if (authResult.user_id && user === authResult.user_id) return;
