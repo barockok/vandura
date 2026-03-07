@@ -7,6 +7,7 @@
 </div>
 
 [![CI](https://github.com/barockok/vandura/actions/workflows/ci.yml/badge.svg)](https://github.com/barockok/vandura/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/badge/coverage-47.24%25-yellow)](https://github.com/barockok/vandura#testing)
 
 <br />
 
