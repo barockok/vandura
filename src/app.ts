@@ -8,7 +8,7 @@ import { PermissionService } from "./permissions/service.js";
 import { OnboardingFlow } from "./slack/onboarding-flow.js";
 import type { RolePermission } from "./config/types.js";
 import { SlackGateway } from "./slack/gateway.js";
-import { SlackApprovalFlow } from "./slack/approval-flow.js";
+import { SlackApprovalFlow, APPROVAL_ACTION_APPROVE, APPROVAL_ACTION_REJECT } from "./slack/approval-flow.js";
 import { ThreadManager } from "./threads/manager.js";
 import { ApprovalEngine } from "./approval/engine.js";
 import { AuditLogger } from "./audit/logger.js";
@@ -185,6 +185,75 @@ export async function createApp() {
     }
   }
 
+  // Helper: process an approval decision (used by both text replies and button clicks)
+  async function processApprovalDecision(
+    channel: string,
+    threadTs: string,
+    userId: string,
+    decision: "approved" | "rejected",
+    say: SayFn,
+    respond?: (msg: { text: string; replace_original?: boolean }) => Promise<void>,
+  ): Promise<void> {
+    const pending = pendingApprovals.get(threadTs);
+    if (!pending) return;
+
+    const task = await threadManager.findByThread(channel, threadTs);
+    if (!task) return;
+
+    const canApprove = approvalFlow.canApprove({
+      tier: pending.tier,
+      userId,
+      initiatorSlackId: task.initiatorSlackId,
+      checkerSlackId: task.checkerSlackId,
+    });
+
+    if (!canApprove) {
+      const msg = pending.tier === 2
+        ? `Only <@${task.initiatorSlackId}> can approve this (tier 2).`
+        : `Only the checker can approve this (tier 3).`;
+      if (respond) {
+        await respond({ text: msg, replace_original: false });
+      } else {
+        await say({ text: msg, thread_ts: threadTs });
+      }
+      return;
+    }
+
+    await approvalEngine.resolve(pending.approvalId, decision, userId);
+    pendingApprovals.delete(threadTs);
+
+    if (decision === "rejected") {
+      await say({ text: `❌ Action denied by <@${userId}>. The tool will not be executed.`, thread_ts: threadTs });
+      await auditLogger.log({
+        taskId: task.id, action: "approval_rejected", actor: userId,
+        detail: { toolName: pending.toolName, approvalId: pending.approvalId },
+      });
+      return;
+    }
+
+    // Approved — execute the tool
+    await say({ text: `✅ Approved by <@${userId}>. Executing...`, thread_ts: threadTs });
+    const executor = activeExecutors.get(threadTs);
+    if (!executor) return;
+    executor.markApproved(pending.tier);
+
+    const toolResult = await executor.executeApproved(
+      pending.toolName, pending.toolInput, userId,
+    );
+
+    const runtime = activeAgents.get(threadTs);
+    if (!runtime) return;
+
+    try {
+      const agentMsg = `Tool "${pending.toolName}" was approved and executed. Result: ${toolResult.output}`;
+      await threadManager.addMessage(task.id, "user", agentMsg, { source: "approval_result" });
+      await runAgentChat(runtime, executor, task, agentMsg, threadTs, say);
+    } catch (err) {
+      const errorMsg = `Error after approval: ${err instanceof Error ? err.message : "unknown"}`;
+      await say({ text: errorMsg, thread_ts: threadTs });
+    }
+  }
+
   // Handle @mentions — create new task thread
   gateway.onMention(async ({ user, text, channel, ts, say }) => {
     await auditLogger.log({
@@ -296,61 +365,12 @@ export async function createApp() {
       }
     }
 
-    // Check if this is an approval decision
+    // Check if this is an approval decision (text-based fallback)
     const pending = pendingApprovals.get(thread_ts);
     if (pending) {
       const decision = approvalFlow.parseDecision(text);
       if (decision) {
-        const canApprove = approvalFlow.canApprove({
-          tier: pending.tier,
-          userId: user,
-          initiatorSlackId: task.initiatorSlackId,
-          checkerSlackId: task.checkerSlackId,
-        });
-
-        if (!canApprove) {
-          await say({
-            text: pending.tier === 2
-              ? `Only <@${task.initiatorSlackId}> can approve this (tier 2).`
-              : `Only the checker can approve this (tier 3).`,
-            thread_ts,
-          });
-          return;
-        }
-
-        await approvalEngine.resolve(pending.approvalId, decision, user);
-        pendingApprovals.delete(thread_ts);
-
-        if (decision === "rejected") {
-          await say({ text: "❌ Action denied. The tool will not be executed.", thread_ts });
-          await auditLogger.log({
-            taskId: task.id, action: "approval_rejected", actor: user,
-            detail: { toolName: pending.toolName, approvalId: pending.approvalId },
-          });
-          return;
-        }
-
-        // Approved — execute the tool and remember this tier for the task
-        await say({ text: "✅ Approved. Executing...", thread_ts });
-        const executor = activeExecutors.get(thread_ts);
-        if (!executor) return;
-        executor.markApproved(pending.tier);
-
-        const toolResult = await executor.executeApproved(
-          pending.toolName, pending.toolInput, user,
-        );
-
-        const runtime = activeAgents.get(thread_ts);
-        if (!runtime) return;
-
-        try {
-          const agentMsg = `Tool "${pending.toolName}" was approved and executed. Result: ${toolResult.output}`;
-          await threadManager.addMessage(task.id, "user", agentMsg, { source: "approval_result" });
-          await runAgentChat(runtime, executor, task, agentMsg, thread_ts, say);
-        } catch (err) {
-          const errorMsg = `Error after approval: ${err instanceof Error ? err.message : "unknown"}`;
-          await say({ text: errorMsg, thread_ts });
-        }
+        await processApprovalDecision(channel, thread_ts, user, decision, say);
         return;
       }
     }
@@ -371,6 +391,18 @@ export async function createApp() {
       await say({ text: errorMsg, thread_ts });
     }
   });
+
+  // Handle approval button clicks
+  const handleApprovalAction = async (
+    { user, value, channel, threadTs, respond, say }: import("./slack/gateway.js").ActionPayload,
+    decision: "approved" | "rejected",
+  ) => {
+    if (!threadTs) return;
+    await processApprovalDecision(channel, threadTs, user, decision, say, respond);
+  };
+
+  gateway.onAction(APPROVAL_ACTION_APPROVE, (payload) => handleApprovalAction(payload, "approved"));
+  gateway.onAction(APPROVAL_ACTION_REJECT, (payload) => handleApprovalAction(payload, "rejected"));
 
   gateway.onMemberJoined(async ({ user, channel }) => {
     if (authResult.user_id && user === authResult.user_id) return;

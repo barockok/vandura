@@ -12,7 +12,7 @@ describe("SlackApprovalFlow", () => {
   });
 
   it("posts tier 2 approval request mentioning initiator", async () => {
-    const msg = await flow.postApprovalRequest({
+    await flow.postApprovalRequest({
       say: mockSay,
       threadTs: "thread-1",
       approvalId: "apr-1",
@@ -26,9 +26,16 @@ describe("SlackApprovalFlow", () => {
     expect(mockSay).toHaveBeenCalledTimes(1);
     const call = mockSay.mock.calls[0][0];
     expect(call.thread_ts).toBe("thread-1");
-    expect(call.text).toContain("<@U_INIT>");
     expect(call.text).toContain("db_query");
-    expect(call.text).toContain("approve");
+    expect(call.blocks).toBeDefined();
+    const blocksJson = JSON.stringify(call.blocks);
+    expect(blocksJson).toContain("<@U_INIT>");
+    expect(blocksJson).toContain("db_query");
+    // Has approve/reject buttons
+    const actions = call.blocks.find((b: { type: string }) => b.type === "actions");
+    expect(actions.elements).toHaveLength(2);
+    expect(actions.elements[0].text.text).toContain("Approve");
+    expect(actions.elements[1].text.text).toContain("Reject");
   });
 
   it("posts tier 3 approval request mentioning checker", async () => {
@@ -44,8 +51,9 @@ describe("SlackApprovalFlow", () => {
     });
 
     const call = mockSay.mock.calls[0][0];
-    expect(call.text).toContain("<@U_CHECK>");
-    expect(call.text).toContain("DELETE FROM logs");
+    const blocksJson = JSON.stringify(call.blocks);
+    expect(blocksJson).toContain("<@U_CHECK>");
+    expect(blocksJson).toContain("DELETE FROM logs");
   });
 
   it("parses 'approve' reply as approved", () => {
