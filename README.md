@@ -149,7 +149,144 @@ roles:
 
 Define agent personality and available tools.
 
-## User Onboarding
+### Troubleshooting
+
+#### Pod won't start
+
+```bash
+# Check pod status
+kubectl describe pod -n vandura -l app=vandura
+
+# Check logs
+kubectl logs -n vandura -l app=vandura --tail=100
+
+# Check for image pull errors
+kubectl get pods -n vandura
+```
+
+#### Common issues
+
+**Connection refused to database:**
+- Verify `DATABASE_URL` and `DB_TOOL_CONNECTION_URL` secrets are correct
+- Ensure network policies allow pod-to-database connectivity
+- Check database is accessible from cluster CIDR
+
+**Slack Socket Mode connection failed:**
+- Verify `SLACK_APP_TOKEN` starts with `xapp-`
+- Verify `SLACK_BOT_TOKEN` starts with `xoxb-`
+- Ensure Slack app has Socket Mode enabled in app settings
+
+**S3 upload failures:**
+- Verify `S3_ENDPOINT` is reachable from cluster
+- Check `S3_ACCESS_KEY` and `S3_SECRET_KEY` are correct
+- Ensure bucket exists and credentials have write permission
+
+**Health check failing:**
+- Check `/health` endpoint: `kubectl port-forward svc/vandura 4734:4734 -n vandura`
+- Curl `http://localhost:4734/health`
+
+#### Useful commands
+
+```bash
+# Watch pod status
+kubectl get pods -n vandura -w
+
+# Exec into running container
+kubectl exec -it -n vandura deployment/vandura -- /bin/sh
+
+# Check resource usage
+kubectl top pods -n vandura
+
+# View all events in namespace
+kubectl get events -n vandura --sort-by='.lastTimestamp'
+```
+
+### Per-Agent Slack App Creation
+
+Vandura supports multiple agent personas, each requiring its own Slack app:
+
+1. **Create a new Slack App:**
+   - Go to https://api.slack.com/apps
+   - Click "Create New App" → "From scratch"
+   - App name: e.g., "Atlas" (or your agent name)
+   - Pick your development Slack workspace
+
+2. **Enable Socket Mode:**
+   - Go to "Socket Mode" in sidebar
+   - Enable Socket Mode
+   - Generate app-level token (`xapp-...`)
+   - Save to `.env` as `SLACK_APP_TOKEN`
+
+3. **Add Bot User:**
+   - Go to "OAuth & Permissions"
+   - Scroll to "Bot Users"
+   - Add username: e.g., `@atlas`
+   - Enable "Always Show My Bot as Online"
+
+4. **Configure Event Subscriptions:**
+   - Go to "Event Subscriptions"
+   - Enable events
+   - Under "Subscribe to bot events":
+     - Add: `app_mention`
+     - Add: `message.channels`
+   - Under "Subscribe to events happening in public channels":
+     - Add: `member_joined_channel`
+
+5. **Install to Workspace:**
+   - Go to "Install App"
+   - Click "Install to Workspace"
+   - Authorize
+   - Copy bot token (`xoxb-...`) to `.env` as `SLACK_BOT_TOKEN`
+
+6. **Update agent configuration:**
+   - Add agent to `config/agents.yml` with unique name
+   - Map bot token to agent in startup script or environment
+
+7. **Repeat for each agent persona**
+
+Each agent runs as a separate process with its own tokens but shares the same codebase and database.
+
+### Production Deployment Checklist
+
+Before deploying to production, verify:
+
+**Security:**
+- [ ] Secrets stored in Kubernetes Secrets (not in git)
+- [ ] Database credentials rotated and unique to this environment
+- [ ] S3 credentials use least-privilege IAM (not root keys)
+- [ ] KMS provider configured for production (not `local`)
+- [ ] Network policies restrict pod-to-pod communication
+
+**Reliability:**
+- [ ] Resource limits set appropriately for expected load
+- [ ] Liveness and readiness probes configured and tested
+- [ ] Pod disruption budget configured for HA deployments
+- [ ] Database backups configured and tested
+- [ ] Monitoring/alerting configured (CPU, memory, error rate)
+
+**Slack Integration:**
+- [ ] Slack app installed to production workspace
+- [ ] Bot added to relevant channels
+- [ ] Event subscriptions verified (app_mention, message.channels, member_joined_channel)
+- [ ] Token rotation procedure documented
+
+**Database:**
+- [ ] Migrations tested in staging environment
+- [ ] Database connection pooling tuned for production
+- [ ] Indexes created for frequently queried columns
+
+**Observability:**
+- [ ] Health endpoint accessible from load balancer
+- [ ] Log aggregation configured (stdout/stderr captured)
+- [ ] Token usage metrics tracked per user/agent
+- [ ] Audit logs retained per compliance requirements
+
+**Rollback:**
+- [ ] Previous stable image tagged and available
+- [ ] Rollback procedure tested
+- [ ] Database migration rollback script available (if applicable)
+
+---
 
 When a new member joins a channel where Vandura is deployed:
 
@@ -181,17 +318,112 @@ Tests use [Vitest](https://vitest.dev/) with [Testcontainers](https://testcontai
 
 ## Deployment
 
-Kubernetes manifests are in `k8s/`:
+### Prerequisites
+
+- Kubernetes cluster (v1.25+)
+- kubectl configured with cluster access
+- Docker image built and pushed to registry
+- Database (Postgres 16+) accessible from cluster
+- S3-compatible storage (GCS, MinIO, AWS S3)
+
+### Quick Deploy
 
 ```bash
+# 1. Create namespace and apply manifests
 kubectl apply -f k8s/namespace.yml
+
+# 2. Create secrets (edit values first)
+cp k8s/secrets.example.yml k8s/secrets.yml
+# Edit k8s/secrets.yml with your values
+kubectl apply -f k8s/secrets.yml
+
+# 3. Apply config map (optional - customize settings)
 kubectl apply -f k8s/configmap.yml
-kubectl apply -f k8s/secrets.example.yml  # create your own secrets.yml
+
+# 4. Run database migrations
+./k8s/pre-deploy.sh
+
+# 5. Deploy application
 kubectl apply -f k8s/deployment.yml
 kubectl apply -f k8s/service.yml
+
+# 6. Verify deployment
+kubectl get pods -n vandura
+kubectl logs -n vandura -l app=vandura
 ```
 
-The deployment includes health probes on port 4734 (`/healthz`).
+### Environment Variables
+
+#### Required
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `ANTHROPIC_API_KEY` | Anthropic Claude API key | `sk-ant-api03-...` |
+| `SLACK_BOT_TOKEN` | Slack bot OAuth token | `xoxb-...` |
+| `SLACK_APP_TOKEN` | Slack app-level token (Socket Mode) | `xapp-...` |
+| `DATABASE_URL` | PostgreSQL connection string for app data | `postgres://user:pass@host:5432/vandura` |
+| `DB_TOOL_CONNECTION_URL` | PostgreSQL connection for db_query/db_write tools | `postgres://user:pass@host:5432/target_db` |
+| `S3_ENDPOINT` | S3-compatible storage endpoint | `https://storage.googleapis.com` or `http://minio:9000` |
+| `S3_ACCESS_KEY` | S3 access key | `minioadmin` or GCS HMAC key |
+| `S3_SECRET_KEY` | S3 secret key | Secret value |
+
+#### Optional
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `ANTHROPIC_BASE_URL` | Custom Anthropic API endpoint (for proxies) | `https://api.anthropic.com` |
+| `S3_REGION` | S3 bucket region | `us-east-1` |
+| `S3_BUCKET` | Bucket name for result uploads | `vandura-results` |
+| `S3_SIGNED_URL_EXPIRY` | Signed URL expiry in seconds | `86400` (24h) |
+| `KMS_PROVIDER` | Key management provider | `local` |
+| `SLACK_CHANNEL_ID` | Default channel for E2E tests | - |
+| `E2E_INITIATOR_TOKEN` | Slack user token for E2E initiator | `xoxb-...` |
+| `E2E_CHECKER_TOKEN` | Slack user token for E2E checker | `xoxb-...` |
+
+### Upgrade Procedure
+
+1. **Backup database** (optional but recommended):
+   ```bash
+   kubectl exec -n vandura <postgres-pod> -- pg_dump vandura > backup.sql
+   ```
+
+2. **Pull latest image**:
+   ```bash
+   kubectl set image deployment/vandura vandura=ghcr.io/barockok/vandura:latest -n vandura
+   ```
+
+3. **Run migrations**:
+   ```bash
+   ./k8s/pre-deploy.sh
+   ```
+
+4. **Rollout deployment**:
+   ```bash
+   kubectl rollout restart deployment/vandura -n vandura
+   ```
+
+5. **Verify rollout**:
+   ```bash
+   kubectl rollout status deployment/vandura -n vandura
+   ```
+
+6. **Check health**:
+   ```bash
+   kubectl get pods -n vandura
+   curl http://<service-ip>:4734/health
+   ```
+
+### Rollback
+
+If something goes wrong:
+
+```bash
+# Rollback to previous revision
+kubectl rollout undo deployment/vandura -n vandura
+
+# Or rollback to specific revision
+kubectl rollout undo deployment/vandura -n vandura --to-revision=2
+```
 
 ## Project Structure
 

@@ -19,7 +19,7 @@ Built on the **Anthropic Claude Agent SDK** with **MCP (Model Context Protocol)*
 | 7 | GCS/S3 Upload & Results | **Done** | S3-compatible storage (MinIO for dev, S3/GCS for prod), signed URLs, large response upload, file export tool |
 | 8 | Data Model | **Done** | All tables created, migration versioning fixed, token usage columns added |
 | 9 | Testing & CI/CD | **Partial** | 138 unit/integration tests across 24 files, GitHub Actions CI (lint + typecheck + tests). E2E docker-compose and Slack test harness not yet built |
-| 10 | Deployment Guide | **Partial** | K8s manifests exist, README with setup guide. Migration job manifest and some doc details need updating |
+| 10 | Deployment Guide | **Completed** | Migration job manifest, pre-deploy script, complete README with env reference, troubleshooting, upgrade/rollback procedures, Slack app creation guide |
 | 11 | Thread Persistence & Lifecycle | **Not started** | Design documented. Thread reconnection, auto-stale, memory eviction all pending |
 | 12 | Swarm Architecture | **Not started** | Multi-agent collaboration, scheduler, task-as-plan with phased approvals |
 | 13 | Enhanced Onboarding | **Not started** | Permission-aware onboarding, multiple agent role types |
