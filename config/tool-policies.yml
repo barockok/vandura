@@ -25,6 +25,13 @@ tool_policies:
     tier: 1
     connection_type: shared
 
+  upload_file:
+    tier: 1
+    connection_type: shared
+    guardrails: |
+      Upload only when user explicitly requests a file export (CSV, JSON, etc.).
+      Use appropriate MIME type for the content format.
+
   mcp__grafana__query:
     tier: 1
     connection_type: shared

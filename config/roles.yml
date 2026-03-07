@@ -4,6 +4,7 @@ roles:
     tool_tiers:
       db_query: { max_tier: 3 }
       db_write: { max_tier: 3 }
+      upload_file: { max_tier: 1 }
       mcp-confluence: { max_tier: 2 }
       mcp-gdocs: { max_tier: 2 }
       mcp-gcs: { max_tier: 1 }
@@ -13,6 +14,7 @@ roles:
     tool_tiers:
       db_query: { max_tier: 3 }
       db_write: { max_tier: 3 }
+      upload_file: { max_tier: 1 }
       mcp-confluence: { max_tier: 2 }
       mcp-gdocs: { max_tier: 2 }
       mcp-rest: { max_tier: 3 }
@@ -23,6 +25,7 @@ roles:
     tool_tiers:
       db_query: { max_tier: 3 }
       db_write: { max_tier: 3 }
+      upload_file: { max_tier: 1 }
       mcp-confluence: { max_tier: 1 }
       mcp-gdocs: { max_tier: 2 }
       mcp-gcs: { max_tier: 1 }
