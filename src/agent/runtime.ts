@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { AgentConfig, ToolPolicies } from "../config/types.js";
 import type { ToolDefinition, ToolResult } from "../tools/types.js";
 import { buildSystemPrompt } from "./prompt.js";
+import { env } from "../config/env.js";
 
 type ToolExecutorFn = (
   toolName: string,
@@ -74,7 +75,7 @@ export class AgentRuntime {
 
     for (let round = 0; round <= maxRounds; round++) {
       const params: Anthropic.MessageCreateParams = {
-        model: "claude-sonnet-4-20250514",
+        model: env.ANTHROPIC_MODEL,
         max_tokens: 4096,
         system: this.systemPrompt,
         messages: this.conversationHistory,

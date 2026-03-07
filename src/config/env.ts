@@ -14,6 +14,7 @@ export const env = {
   S3_SIGNED_URL_EXPIRY: Number(process.env.S3_SIGNED_URL_EXPIRY ?? "86400"),
   ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? "",
   ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL,
+  ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-5-20250929",
   SLACK_APP_TOKEN: process.env.SLACK_APP_TOKEN ?? "",
   SLACK_BOT_TOKEN: process.env.SLACK_BOT_TOKEN ?? "",
   SLACK_CHANNEL_ID: process.env.SLACK_CHANNEL_ID ?? "",

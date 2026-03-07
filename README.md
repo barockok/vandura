@@ -429,6 +429,8 @@ kubectl logs -n vandura -l app=vandura
 | Variable | Description | Example |
 |----------|-------------|---------|
 | `ANTHROPIC_API_KEY` | Anthropic Claude API key | `sk-ant-api03-...` |
+| `ANTHROPIC_MODEL` | Claude model to use | `claude-sonnet-4-5-20250929` or `claude-3-5-sonnet-20241022` |
+| `ANTHROPIC_BASE_URL` | Custom Anthropic API endpoint (for proxies) | `https://api.anthropic.com` (default) |
 | `SLACK_BOT_TOKEN` | Slack bot OAuth token | `xoxb-...` |
 | `SLACK_APP_TOKEN` | Slack app-level token (Socket Mode) | `xapp-...` |
 | `DATABASE_URL` | PostgreSQL connection string for app data | `postgres://user:pass@host:5432/vandura` |
