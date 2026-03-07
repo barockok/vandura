@@ -178,7 +178,7 @@ export async function createApp() {
         content: Buffer.from(response.text),
         contentType: "text/plain",
       });
-      const preview = markdownToSlack(response.text.slice(0, 500)) + `...\n\n📎 Full response: ${signedUrl}`;
+      const preview = markdownToSlack(response.text.slice(0, 500)) + `...\n\n📎 Full response: <${signedUrl}>`;
       await say({ text: preview, thread_ts: threadTs });
     } else {
       await say({ text: slackText, thread_ts: threadTs });
