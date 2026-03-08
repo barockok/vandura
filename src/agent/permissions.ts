@@ -91,7 +91,9 @@ export function getToolPolicy(toolName: string): ToolPolicy {
  * Get tool tier by name
  */
 export function getToolTier(toolName: string): 1 | 2 | 3 {
-  return getToolPolicy(toolName).tier;
+  const policy = getToolPolicy(toolName);
+  console.log(`[getToolTier] Tool: ${toolName}, returning tier: ${policy.tier}`);
+  return policy.tier;
 }
 
 /**

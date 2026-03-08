@@ -205,10 +205,13 @@ function createPermissionHandler(
 
     console.log(`[canUseTool] Tool: ${toolName}, Tier: ${tier}, Session: ${session.id}`);
 
-    // Tier 1: Auto-approve
+    // Tier 1: Auto-approve by returning allow with updatedInput
     if (tier === 1) {
       console.log(`[canUseTool] Auto-approving tier 1 tool: ${toolName}`);
-      return { behavior: "allow" };
+      return {
+        behavior: "allow",
+        updatedInput: input,
+      };
     }
 
     // Tier 2/3: Request approval with interrupt (pauses session for approval)
