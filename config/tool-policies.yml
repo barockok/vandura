@@ -17,6 +17,23 @@ tool_policies:
       Never allow DROP or TRUNCATE without explicit confirmation.
       Avoid full table updates without WHERE clause.
 
+  # PostgreSQL MCP server tools
+  mcp__postgres__query:
+    tier: 1
+    connection_type: shared
+    guardrails: |
+      Prefer indexed queries. Avoid full table scans on large tables.
+      For large result sets (>1000 rows), summarize or use pagination.
+
+  mcp__postgres__execute:
+    tier: 3
+    connection_type: shared
+    guardrails: |
+      Show the exact SQL statement and affected table.
+      Estimate how many rows will be affected.
+      Never allow DROP or TRUNCATE without explicit confirmation.
+      Avoid full table updates without WHERE clause.
+
   mcp__gcs__upload:
     tier: 1
     connection_type: shared
