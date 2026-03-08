@@ -128,6 +128,9 @@ export function createQueryOptions(
     // sessionId cannot be used with resume - SDK manages session ID for resumed sessions
     ...(isResuming ? {} : { sessionId: session.id }),
     env: {
+      // Include full environment so Claude Code can find commands like npx
+      ...process.env as Record<string, string>,
+      // Override with specific SDK settings
       ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY,
       ...(env.ANTHROPIC_BASE_URL ? { ANTHROPIC_BASE_URL: env.ANTHROPIC_BASE_URL } : {}),
       CLAUDE_AGENT_SDK_CLIENT_APP: "vandura/1.0.0",
