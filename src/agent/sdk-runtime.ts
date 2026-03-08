@@ -117,6 +117,16 @@ export function createQueryOptions(
     };
   };
 
+  // Build environment for Claude Code - exclude Claude Code internal variables
+  // to prevent "nested session" detection
+  const claudeEnv: Record<string, string> = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    // Skip Claude Code internal variables that cause nested session detection
+    if (!key.startsWith('CLAUDECODE') && value !== undefined) {
+      claudeEnv[key] = value;
+    }
+  }
+
   const queryOptions = {
     cwd: session.sandboxPath,
     mcpServers: mcpConfig.servers,
@@ -129,13 +139,19 @@ export function createQueryOptions(
     ...(isResuming ? {} : { sessionId: session.id }),
     env: {
       // Include full environment so Claude Code can find commands like npx
-      ...process.env as Record<string, string>,
+      ...claudeEnv,
       // Override with specific SDK settings
       ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY,
       ...(env.ANTHROPIC_BASE_URL ? { ANTHROPIC_BASE_URL: env.ANTHROPIC_BASE_URL } : {}),
       CLAUDE_AGENT_SDK_CLIENT_APP: "vandura/1.0.0",
     },
   };
+
+  // Debug: log MCP servers config
+  console.log(`[Runtime] MCP servers configured:`, Object.keys(mcpConfig.servers));
+  console.log(`[Runtime] Session sandbox path:`, session.sandboxPath);
+  console.log(`[Runtime] ANTHROPIC_MODEL:`, env.ANTHROPIC_MODEL);
+  console.log(`[Runtime] CLAUDE_CODE_PATH:`, env.CLAUDE_CODE_PATH);
 
   return queryOptions;
 }
@@ -313,6 +329,9 @@ export async function continueSession(
   const options = createQueryOptions(session, mcpConfig, onApprovalNeeded, agentConfig, true);
 
   try {
+    console.log(`[Runtime] Continuing session ${session.id} with prompt: "${userMessage?.substring(0, 50)}"`);
+    console.log(`[Runtime] Resume options: resume=${session.id}, allowedTools=`, options.allowedTools);
+
     const queryResult = query({
       prompt: userMessage,
       options: {
@@ -336,6 +355,7 @@ export async function continueSession(
     return { status: "completed" };
   } catch (error) {
     console.error(`[Runtime] Error continuing session ${session.id}:`, error);
+    console.error(`[Runtime] Full error details:`, JSON.stringify(error, Object.getOwnPropertyNames(error)));
 
     await onMessage({
       type: "error",
