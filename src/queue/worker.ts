@@ -156,7 +156,7 @@ async function processContinueSession(job: Job<ContinueSessionJobData>): Promise
   console.log(`[Worker] Continuing session ${sessionId}`);
 
   // Get existing session
-  let session = await getSession(sessionId);
+  const session = await getSession(sessionId);
   if (!session) {
     return {
       success: false,
@@ -165,7 +165,6 @@ async function processContinueSession(job: Job<ContinueSessionJobData>): Promise
   }
 
   console.log(`[Worker] Session sandbox path: ${session.sandboxPath}`);
-  console.log(`[Worker] Session server_session_id: ${session.serverSessionId || "not set"}`);
 
   // Update status
   await updateSessionStatus(sessionId, "active");
@@ -174,29 +173,8 @@ async function processContinueSession(job: Job<ContinueSessionJobData>): Promise
   const mcpConfig = await getMcpConfig();
   const agentCfg = await getAgentConfig();
   console.log(`[Worker] MCP servers: ${Object.keys(mcpConfig.servers)}`);
-  console.log(`[Worker] PostgreSQL MCP env: ${JSON.stringify(mcpConfig.servers.postgres?.env)}`);
 
-  // Wait for server_session_id if not yet available
-  // This handles race condition where continue_session is queued before
-  // the previous start_session or continue_session has completed
-  if (!session.serverSessionId) {
-    console.log(`[Worker] Waiting for server_session_id to be available...`);
-    const maxAttempts = 10; // Wait up to 5 seconds
-    let attempts = 0;
-    while (!session.serverSessionId && attempts < maxAttempts) {
-      await new Promise(resolve => setTimeout(resolve, 500)); // Wait 500ms
-      session = await getSession(sessionId);
-      attempts++;
-      console.log(`[Worker] Waiting for server_session_id... attempt ${attempts}/${maxAttempts}`);
-    }
-    if (session.serverSessionId) {
-      console.log(`[Worker] server_session_id is now available: ${session.serverSessionId}`);
-    } else {
-      console.warn(`[Worker] server_session_id still not available after ${maxAttempts} attempts, continuing without resume`);
-    }
-  }
-
-  // Continue the session
+  // Continue the session (SDK will resume using session.id)
   const result = await continueSession(
     session,
     message,
@@ -269,22 +247,7 @@ async function processApproveTool(job: Job<ApproveToolJobData>): Promise<JobResu
   const mcpConfig = await getMcpConfig();
   const agentCfg = await getAgentConfig();
 
-  // Wait for server_session_id if not yet available (same as continue_session)
-  if (!session.serverSessionId) {
-    console.log(`[Worker] Waiting for server_session_id before resuming...`);
-    const maxAttempts = 10;
-    let attempts = 0;
-    while (!session.serverSessionId && attempts < maxAttempts) {
-      await new Promise(resolve => setTimeout(resolve, 500));
-      session = await getSession(sessionId);
-      attempts++;
-    }
-    if (!session.serverSessionId) {
-      console.warn(`[Worker] server_session_id still not available, resuming without resume`);
-    }
-  }
-
-  // Resume session with approved tool
+  // Resume session with approved tool (SDK will resume using session.id)
   const result = await resumeSession(
     session,
     mcpConfig,

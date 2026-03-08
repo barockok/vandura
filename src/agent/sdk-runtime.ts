@@ -3,8 +3,7 @@ import type { BetaTextBlock } from "@anthropic-ai/sdk/resources/beta/messages/me
 import { env } from "../config/env.js";
 import type { PendingApproval, Session } from "../queue/types.js";
 import type { LoadedMcpConfig } from "./mcp-loader.js";
-import { getToolTier, getToolInfo } from "./permissions.js";
-import { updateServerSessionId } from "./session.js";
+import { getToolTier } from "./permissions.js";
 import { buildSystemPrompt } from "./prompt.js";
 import type { AgentConfig } from "../config/types.js";
 
@@ -123,6 +122,7 @@ export function createQueryOptions(
     model: env.ANTHROPIC_MODEL,
     pathToClaudeCodeExecutable: env.CLAUDE_CODE_PATH,
     systemPrompt,
+    sessionId: session.id, // Use our session ID as the SDK's session ID
     env: {
       ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY,
       ...(env.ANTHROPIC_BASE_URL ? { ANTHROPIC_BASE_URL: env.ANTHROPIC_BASE_URL } : {}),
@@ -152,31 +152,13 @@ export async function runSession(
       options,
     });
 
-    let capturedServerSessionId: string | null = null;
-
     // Process message stream
     for await (const msg of queryResult) {
-      // Capture server session ID from result message IMMEDIATELY
-      if (msg.type === "result" && (msg as any).session_id) {
-        const serverSessionId = (msg as any).session_id;
-        capturedServerSessionId = serverSessionId;
-        console.log(`[Runtime] Captured server session ID: ${serverSessionId}`);
-        // Persist immediately so continue_session can use it
-        await updateServerSessionId(session.id, serverSessionId);
-      }
-
       const agentMessage = processSdkMessage(msg, session.id);
 
       if (agentMessage) {
         await onMessage(agentMessage);
       }
-    }
-
-    // Ensure server session ID is persisted before session completes
-    if (capturedServerSessionId && !session.serverSessionId) {
-      console.log(`[Runtime] Ensuring server session ID is persisted: ${capturedServerSessionId}`);
-      // Already persisted above, but session object in memory still has old value
-      // The DB has the correct value, so continue_session will pick it up
     }
 
     await onMessage({ type: "complete", sessionId: session.id });
@@ -210,7 +192,6 @@ export async function resumeSession(
   agentConfig?: AgentConfig
 ): Promise<SessionResult> {
   console.log(`[Runtime] Resuming session ${session.id}`);
-  console.log(`[Runtime] Server session ID: ${session.serverSessionId || "not stored"}`);
 
   const options = createQueryOptions(session, mcpConfig, onApprovalNeeded, agentConfig, true);
 
@@ -224,20 +205,13 @@ export async function resumeSession(
       prompt: "", // Empty prompt for resume
       options: {
         ...options,
-        // Use stored server session ID if available
-        ...(session.serverSessionId ? { resume: session.serverSessionId } : {}),
+        // Resume using our session ID (SDK uses same ID we provided)
+        resume: session.id,
       },
     });
 
     // Process message stream
     for await (const msg of queryResult) {
-      // Capture server session ID from result message
-      if (msg.type === "result" && (msg as any).session_id) {
-        const serverSessionId = (msg as any).session_id;
-        console.log(`[Runtime] Updated server session ID: ${serverSessionId}`);
-        await updateServerSessionId(session.id, serverSessionId);
-      }
-
       const agentMessage = processSdkMessage(msg, session.id);
 
       if (agentMessage) {
@@ -313,36 +287,21 @@ export async function continueSession(
   agentConfig?: AgentConfig
 ): Promise<SessionResult> {
   console.log(`[Runtime] Continuing session ${session.id}`);
-  console.log(`[Runtime] Server session ID: ${session.serverSessionId || "not stored"}`);
 
   const options = createQueryOptions(session, mcpConfig, onApprovalNeeded, agentConfig, true);
 
   try {
-    const queryOptions: any = {
+    const queryResult = query({
       prompt: userMessage,
       options: {
         ...options,
-        // Use stored server session ID if available
-        ...(session.serverSessionId ? { resume: session.serverSessionId } : {}),
+        // Resume using our session ID (SDK uses same ID we provided)
+        resume: session.id,
       },
-    };
-
-    // If no server session ID, log a warning - context will be lost
-    if (!session.serverSessionId) {
-      console.warn(`[Runtime] No server session ID for session ${session.id} - starting fresh context`);
-    }
-
-    const queryResult = query(queryOptions);
+    });
 
     // Process message stream
     for await (const msg of queryResult) {
-      // Capture server session ID from result message
-      if (msg.type === "result" && (msg as any).session_id) {
-        const serverSessionId = (msg as any).session_id;
-        console.log(`[Runtime] Updated server session ID: ${serverSessionId}`);
-        await updateServerSessionId(session.id, serverSessionId);
-      }
-
       const agentMessage = processSdkMessage(msg, session.id);
 
       if (agentMessage) {

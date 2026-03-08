@@ -68,7 +68,6 @@ interface SessionRow {
   user_id: string;
   thread_ts: string | null;
   sandbox_path: string;
-  server_session_id: string | null;
   status: SessionStatus;
   created_at: Date;
   updated_at: Date;
@@ -81,7 +80,6 @@ function rowToSession(row: SessionRow): Session {
     userId: row.user_id,
     threadTs: row.thread_ts,
     sandboxPath: row.sandbox_path,
-    serverSessionId: row.server_session_id,
     status: row.status,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -130,19 +128,6 @@ export async function updateSessionStatus(
   await pool.query(
     `UPDATE sessions SET status = $1, updated_at = NOW() WHERE id = $2`,
     [status, sessionId]
-  );
-}
-
-/**
- * Update server-side session ID for conversation continuity
- */
-export async function updateServerSessionId(
-  sessionId: string,
-  serverSessionId: string
-): Promise<void> {
-  await pool.query(
-    `UPDATE sessions SET server_session_id = $1, updated_at = NOW() WHERE id = $2`,
-    [serverSessionId, sessionId]
   );
 }
 

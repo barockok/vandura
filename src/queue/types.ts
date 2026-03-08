@@ -101,7 +101,6 @@ export interface Session {
   userId: string;
   threadTs: string | null;
   sandboxPath: string;
-  serverSessionId?: string | null; // Server-side session ID for conversation continuity
   status: SessionStatus;
   createdAt: Date;
   updatedAt: Date;
