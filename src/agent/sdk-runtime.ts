@@ -263,6 +263,15 @@ function processSdkMessage(msg: SDKMessage, sessionId: string): AgentMessage | n
       return null;
     }
 
+    case "tool_use_summary": {
+      // Tool execution results - send to Slack
+      return {
+        type: "text",
+        content: msg.summary,
+        sessionId,
+      };
+    }
+
     case "result":
       return {
         type: "complete",
