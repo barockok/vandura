@@ -114,7 +114,7 @@ export function createQueryOptions(
     };
   };
 
-  return {
+  const queryOptions = {
     cwd: session.sandboxPath,
     mcpServers: mcpConfig.servers,
     canUseTool: permissionHandler,
@@ -122,13 +122,16 @@ export function createQueryOptions(
     model: env.ANTHROPIC_MODEL,
     pathToClaudeCodeExecutable: env.CLAUDE_CODE_PATH,
     systemPrompt,
-    sessionId: session.id, // Use our session ID as the SDK's session ID
+    // sessionId cannot be used with resume - SDK manages session ID for resumed sessions
+    ...(isResuming ? {} : { sessionId: session.id }),
     env: {
       ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY,
       ...(env.ANTHROPIC_BASE_URL ? { ANTHROPIC_BASE_URL: env.ANTHROPIC_BASE_URL } : {}),
       CLAUDE_AGENT_SDK_CLIENT_APP: "vandura/1.0.0",
     },
   };
+
+  return queryOptions;
 }
 
 /**

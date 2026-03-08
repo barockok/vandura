@@ -7,7 +7,7 @@ servers:
     args:
       - "-y"
       - "@modelcontextprotocol/server-postgres"
-      - "${DATABASE_URL}"
+      - "${DB_TOOL_CONNECTION_URL}"
     tools:
       # Read-only queries - auto-execute (tier 1)
       - name: "query"

@@ -58,11 +58,16 @@ export async function loadMcpConfig(configPath: string): Promise<LoadedMcpConfig
         throw new Error(`stdio server "${serverName}" requires command`);
       }
 
+      const processedArgs = serverConfig.args?.map(substituteEnvVars);
+
       servers[serverName] = {
         type: "stdio",
         command: serverConfig.command,
-        args: serverConfig.args?.map(substituteEnvVars),
+        args: processedArgs,
         env: {
+          // Include full environment so MCP server can find commands like npx
+          ...process.env as Record<string, string>,
+          // Override with specific database URL
           DATABASE_URL: env.DB_TOOL_CONNECTION_URL || env.DATABASE_URL,
         },
       };
