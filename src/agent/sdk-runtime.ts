@@ -1,11 +1,11 @@
 import { query, type Options, type PermissionResult, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { BetaTextBlock } from "@anthropic-ai/sdk/resources/beta/messages/messages.js";
 import { env } from "../config/env.js";
+import type { AgentConfig } from "../config/types.js";
 import type { PendingApproval, Session } from "../queue/types.js";
 import type { LoadedMcpConfig } from "./mcp-loader.js";
 import { getToolTier } from "./permissions.js";
 import { buildSystemPrompt } from "./prompt.js";
-import type { AgentConfig } from "../config/types.js";
 
 /**
  * Message types for streaming to Slack
@@ -86,18 +86,12 @@ export function createQueryOptions(
   ): Promise<PermissionResult> => {
     const tier = getToolTier(toolName);
 
-    // Debug logging for tool calls
-    console.log(`[Runtime] Tool call: ${toolName}, input:`, JSON.stringify(input));
-
     // Tier 1: Auto-approve
     if (tier === 1) {
-      console.log(`[Runtime] Auto-approving tier 1 tool: ${toolName}`);
       return { behavior: "allow" };
     }
 
     // Tier 2/3: Request approval
-    console.log(`[Runtime] Requesting approval for tier ${tier} tool: ${toolName}`);
-
     const { storePendingApproval } = await import("./permissions.js");
     const approval = await storePendingApproval({
       sessionId: session.id,
@@ -147,12 +141,6 @@ export function createQueryOptions(
     },
   };
 
-  // Debug: log MCP servers config
-  console.log(`[Runtime] MCP servers configured:`, Object.keys(mcpConfig.servers));
-  console.log(`[Runtime] Session sandbox path:`, session.sandboxPath);
-  console.log(`[Runtime] ANTHROPIC_MODEL:`, env.ANTHROPIC_MODEL);
-  console.log(`[Runtime] CLAUDE_CODE_PATH:`, env.CLAUDE_CODE_PATH);
-
   return queryOptions;
 }
 
@@ -167,8 +155,6 @@ export async function runSession(
   onApprovalNeeded: ApprovalCallback,
   agentConfig?: AgentConfig
 ): Promise<SessionResult> {
-  console.log(`[Runtime] Starting session ${session.id}`);
-
   const options = createQueryOptions(session, mcpConfig, onApprovalNeeded, agentConfig);
 
   try {
@@ -216,8 +202,6 @@ export async function resumeSession(
   allowedTool?: string,
   agentConfig?: AgentConfig
 ): Promise<SessionResult> {
-  console.log(`[Runtime] Resuming session ${session.id}`);
-
   const options = createQueryOptions(session, mcpConfig, onApprovalNeeded, agentConfig, true);
 
   // If we have an allowed tool, add it to allowedTools
@@ -267,9 +251,6 @@ export async function resumeSession(
  * Process an SDK message into our AgentMessage format
  */
 function processSdkMessage(msg: SDKMessage, sessionId: string): AgentMessage | null {
-  // Debug: log all message types received
-  console.log(`[Runtime] Received SDK message type: ${msg.type}`);
-
   switch (msg.type) {
     case "assistant": {
       // Extract text from assistant message
@@ -290,7 +271,6 @@ function processSdkMessage(msg: SDKMessage, sessionId: string): AgentMessage | n
 
     case "tool_use_summary": {
       // Tool execution results - send to Slack
-      console.log(`[Runtime] Tool summary: ${msg.summary?.substring(0, 200)}`);
       return {
         type: "text",
         content: msg.summary,
@@ -324,14 +304,9 @@ export async function continueSession(
   onApprovalNeeded: ApprovalCallback,
   agentConfig?: AgentConfig
 ): Promise<SessionResult> {
-  console.log(`[Runtime] Continuing session ${session.id}`);
-
   const options = createQueryOptions(session, mcpConfig, onApprovalNeeded, agentConfig, true);
 
   try {
-    console.log(`[Runtime] Continuing session ${session.id} with prompt: "${userMessage?.substring(0, 50)}"`);
-    console.log(`[Runtime] Resume options: resume=${session.id}, allowedTools=`, options.allowedTools);
-
     const queryResult = query({
       prompt: userMessage,
       options: {
@@ -355,7 +330,6 @@ export async function continueSession(
     return { status: "completed" };
   } catch (error) {
     console.error(`[Runtime] Error continuing session ${session.id}:`, error);
-    console.error(`[Runtime] Full error details:`, JSON.stringify(error, Object.getOwnPropertyNames(error)));
 
     await onMessage({
       type: "error",
