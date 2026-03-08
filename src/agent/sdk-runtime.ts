@@ -251,6 +251,9 @@ export async function resumeSession(
  * Process an SDK message into our AgentMessage format
  */
 function processSdkMessage(msg: SDKMessage, sessionId: string): AgentMessage | null {
+  // Debug: log all message types received
+  console.log(`[Runtime] Received SDK message type: ${msg.type}`);
+
   switch (msg.type) {
     case "assistant": {
       // Extract text from assistant message
@@ -271,6 +274,7 @@ function processSdkMessage(msg: SDKMessage, sessionId: string): AgentMessage | n
 
     case "tool_use_summary": {
       // Tool execution results - send to Slack
+      console.log(`[Runtime] Tool summary: ${msg.summary?.substring(0, 200)}`);
       return {
         type: "text",
         content: msg.summary,
