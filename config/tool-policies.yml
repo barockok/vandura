@@ -19,7 +19,7 @@ tool_policies:
 
   # PostgreSQL MCP server tools
   mcp__postgres__query:
-    tier: 1
+    tier: 2
     connection_type: shared
     guardrails: |
       Prefer indexed queries. Avoid full table scans on large tables.

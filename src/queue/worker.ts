@@ -223,9 +223,20 @@ async function processApproveTool(job: Job<ApproveToolJobData>): Promise<JobResu
   // Get pending approval
   const approval = await getPendingApproval(sessionId);
   if (!approval) {
-    console.error(`[Worker] No pending approval found for session ${sessionId}`);
+    console.warn(`[Worker] No pending approval found for session ${sessionId}`);
+
+    // Notify user in Slack that no approval is needed
+    if (slackClient) {
+      await slackClient.postMessage(
+        session.channelId,
+        `No pending approval found for this session. All tools have already been executed or approved.`,
+        session.threadTs || undefined
+      );
+    }
+
     return {
       success: false,
+      sessionId,
       error: `No pending approval for session ${sessionId}`,
     };
   }
