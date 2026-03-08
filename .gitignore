@@ -8,3 +8,4 @@ coverage/
 acessToken.txt
 *.env
 CLAUDE.md
+.worktrees/
