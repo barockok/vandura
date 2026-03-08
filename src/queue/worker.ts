@@ -109,7 +109,7 @@ const requestApproval: ApprovalCallback = async (approval, session) => {
 async function processStartSession(job: Job<StartSessionJobData>): Promise<JobResult> {
   const { channelId, userId, message, threadTs } = job.data;
 
-  console.log(`[Worker] Starting session for channel ${channelId}, user ${userId}`);
+  console.log(`[Worker] Starting session for channel ${channelId}, user ${userId}, message: "${message.substring(0, 50)}..."`);
 
   // Load tool policies if not loaded
   await loadToolPolicies("config/tool-policies.yml");
@@ -130,6 +130,8 @@ async function processStartSession(job: Job<StartSessionJobData>): Promise<JobRe
   const mcpConfig = await getMcpConfig();
   const agentCfg = await getAgentConfig();
 
+  console.log(`[Worker] MCP servers configured: ${Object.keys(mcpConfig.servers).join(", ")}`);
+
   // Run the agent session
   const result = await runSession(
     session,
@@ -140,10 +142,15 @@ async function processStartSession(job: Job<StartSessionJobData>): Promise<JobRe
     agentCfg || undefined
   );
 
+  // Update session status based on result
+  if (result.status === "interrupted") {
+    await updateSessionStatus(session.id, "awaiting_approval");
+  }
+
   return {
     success: result.status !== "error",
     sessionId: session.id,
-    message: result.status === "awaiting_approval"
+    message: result.status === "interrupted"
       ? `Session ${session.id} awaiting approval`
       : `Session ${session.id} ${result.status}`,
     error: result.error,
@@ -201,11 +208,12 @@ async function processContinueSession(job: Job<ContinueSessionJobData>): Promise
 async function processApproveTool(job: Job<ApproveToolJobData>): Promise<JobResult> {
   const { sessionId, toolUseId, decision, approverId } = job.data;
 
-  console.log(`[Worker] Processing approval for session ${sessionId}, tool ${toolUseId}: ${decision}`);
+  console.log(`[Worker] Processing approval for session ${sessionId}, tool ${toolUseId}: ${decision} by ${approverId}`);
 
   // Get existing session
   let session = await getSession(sessionId);
   if (!session) {
+    console.error(`[Worker] Session ${sessionId} not found`);
     return {
       success: false,
       error: `Session ${sessionId} not found`,
@@ -215,11 +223,14 @@ async function processApproveTool(job: Job<ApproveToolJobData>): Promise<JobResu
   // Get pending approval
   const approval = await getPendingApproval(sessionId);
   if (!approval) {
+    console.error(`[Worker] No pending approval found for session ${sessionId}`);
     return {
       success: false,
       error: `No pending approval for session ${sessionId}`,
     };
   }
+
+  console.log(`[Worker] Found pending approval: ${approval.id} for tool ${approval.toolName} (tier ${approval.tier})`);
 
   // Resolve the approval
   await resolvePendingApproval(sessionId, decision, approverId);

@@ -34,9 +34,10 @@ export type ApprovalCallback = (approval: PendingApproval, session: Session) => 
  * Result of running an agent session
  */
 export interface SessionResult {
-  status: "completed" | "awaiting_approval" | "error";
+  status: "completed" | "awaiting_approval" | "error" | "interrupted";
   error?: string;
   approval?: PendingApproval;
+  toolUseId?: string; // Track which tool is waiting for approval
 }
 
 /**
@@ -55,7 +56,7 @@ export class ApprovalRequiredError extends Error {
 export function createQueryOptions(
   session: Session,
   mcpConfig: LoadedMcpConfig,
-  onApprovalNeeded: ApprovalCallback,
+  _onApprovalNeeded: ApprovalCallback,
   agentConfig?: AgentConfig,
   isResuming: boolean = false
 ): Options {
@@ -78,39 +79,6 @@ export function createQueryOptions(
     });
   }
 
-  // Create permission callback for tier-based approval (handles pause/resume with interrupt)
-  const permissionHandler = async (
-    toolName: string,
-    input: Record<string, unknown>,
-    opts: { toolUseID: string; signal: AbortSignal }
-  ): Promise<PermissionResult> => {
-    const tier = getToolTier(toolName);
-
-    // Tier 1: Auto-approve
-    if (tier === 1) {
-      return { behavior: "allow" };
-    }
-
-    // Tier 2/3: Request approval with interrupt (pauses session for approval)
-    const { storePendingApproval } = await import("./permissions.js");
-    const approval = await storePendingApproval({
-      sessionId: session.id,
-      toolName,
-      toolInput: input,
-      toolUseId: opts.toolUseID,
-      tier,
-    });
-
-    await onApprovalNeeded(approval, session);
-
-    // Return deny with interrupt to pause session until approval
-    return {
-      behavior: "deny",
-      message: `Approval required for ${toolName} (tier ${tier}). Waiting for ${tier === 2 ? "initiator" : "checker"} approval.`,
-      interrupt: true,
-    };
-  };
-
   // Build environment for Claude Code - exclude Claude Code internal variables
   // to prevent "nested session" detection
   const claudeEnv: Record<string, string> = {};
@@ -124,7 +92,6 @@ export function createQueryOptions(
   const queryOptions: Options = {
     cwd: session.sandboxPath,
     mcpServers: mcpConfig.servers,
-    canUseTool: permissionHandler, // Handle approvals with pause/resume
     persistSession: !isResuming, // Don't persist when resuming - we're continuing existing session
     model: env.ANTHROPIC_MODEL,
     pathToClaudeCodeExecutable: env.CLAUDE_CODE_PATH,
@@ -158,10 +125,28 @@ export async function runSession(
 ): Promise<SessionResult> {
   const options = createQueryOptions(session, mcpConfig, onApprovalNeeded, agentConfig);
 
+  // Track if an approval was requested (session will be interrupted)
+  let approvalRequested = false;
+  let pendingApproval: PendingApproval | undefined;
+  let toolUseId: string | undefined;
+
+  // Wrap the approval callback to track when approvals are requested
+  const trackingApprovalCallback: ApprovalCallback = async (approval, sess) => {
+    approvalRequested = true;
+    pendingApproval = approval;
+    await onApprovalNeeded(approval, sess);
+  };
+
   try {
+    // Recreate options with tracking callback
+    const trackingOptions = {
+      ...options,
+      canUseTool: createPermissionHandler(session, mcpConfig, trackingApprovalCallback, agentConfig),
+    };
+
     const queryResult = query({
       prompt: userMessage,
-      options,
+      options: trackingOptions,
     });
 
     // Process message stream
@@ -171,6 +156,16 @@ export async function runSession(
       if (agentMessage) {
         await onMessage(agentMessage);
       }
+    }
+
+    // Check if session was interrupted for approval
+    if (approvalRequested && pendingApproval) {
+      await onMessage({ type: "complete", sessionId: session.id });
+      return {
+        status: "interrupted",
+        approval: pendingApproval,
+        toolUseId,
+      };
     }
 
     await onMessage({ type: "complete", sessionId: session.id });
@@ -190,6 +185,53 @@ export async function runSession(
       error: error instanceof Error ? error.message : "Unknown error",
     };
   }
+}
+
+/**
+ * Create the permission handler for canUseTool
+ */
+function createPermissionHandler(
+  session: Session,
+  mcpConfig: LoadedMcpConfig,
+  onApprovalNeeded: ApprovalCallback,
+  agentConfig?: AgentConfig
+): (toolName: string, input: Record<string, unknown>, opts: { toolUseID: string; signal: AbortSignal }) => Promise<PermissionResult> {
+  return async (
+    toolName: string,
+    input: Record<string, unknown>,
+    opts: { toolUseID: string; signal: AbortSignal }
+  ): Promise<PermissionResult> => {
+    const tier = getToolTier(toolName);
+
+    console.log(`[canUseTool] Tool: ${toolName}, Tier: ${tier}, Session: ${session.id}`);
+
+    // Tier 1: Auto-approve
+    if (tier === 1) {
+      console.log(`[canUseTool] Auto-approving tier 1 tool: ${toolName}`);
+      return { behavior: "allow" };
+    }
+
+    // Tier 2/3: Request approval with interrupt (pauses session for approval)
+    console.log(`[canUseTool] Requesting approval for tier ${tier} tool: ${toolName}`);
+    const { storePendingApproval } = await import("./permissions.js");
+    const approval = await storePendingApproval({
+      sessionId: session.id,
+      toolName,
+      toolInput: input,
+      toolUseId: opts.toolUseID,
+      tier,
+    });
+
+    console.log(`[canUseTool] Stored approval ${approval.id}, calling onApprovalNeeded`);
+    await onApprovalNeeded(approval, session);
+
+    // Return deny with interrupt to pause session until approval
+    return {
+      behavior: "deny",
+      message: `Approval required for ${toolName} (tier ${tier}). Waiting for ${tier === 2 ? "initiator" : "checker"} approval.`,
+      interrupt: true,
+    };
+  };
 }
 
 /**
