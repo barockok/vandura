@@ -62,6 +62,9 @@ export async function loadMcpConfig(configPath: string): Promise<LoadedMcpConfig
         type: "stdio",
         command: serverConfig.command,
         args: serverConfig.args?.map(substituteEnvVars),
+        env: {
+          DATABASE_URL: env.DB_TOOL_CONNECTION_URL || env.DATABASE_URL,
+        },
       };
     } else if (serverConfig.type === "sse") {
       if (!serverConfig.endpoint) {

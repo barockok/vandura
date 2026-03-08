@@ -5,6 +5,8 @@ import { createSession, getSession, updateSessionStatus } from "../agent/session
 import { loadMcpConfig } from "../agent/mcp-loader.js";
 import { resolvePendingApproval, getPendingApproval, loadToolPolicies } from "../agent/permissions.js";
 import { runSession, resumeSession, continueSession, type AgentMessage, type ApprovalCallback } from "../agent/sdk-runtime.js";
+import { loadAgents } from "../config/loader.js";
+import type { AgentConfig } from "../config/types.js";
 
 // Slack client placeholder - will be injected
 let slackClient: {
@@ -22,6 +24,9 @@ export function setSlackClient(client: typeof slackClient): void {
 // MCP config cache
 let mcpConfig: Awaited<ReturnType<typeof loadMcpConfig>> | null = null;
 
+// Agent config cache
+let agentConfig: AgentConfig | null = null;
+
 /**
  * Get or load MCP config
  */
@@ -30,6 +35,17 @@ async function getMcpConfig() {
     mcpConfig = await loadMcpConfig("config/mcp-servers.yml");
   }
   return mcpConfig;
+}
+
+/**
+ * Get or load agent config
+ */
+async function getAgentConfig() {
+  if (!agentConfig) {
+    const agents = await loadAgents("config/agents.yml");
+    agentConfig = agents[0] || null;
+  }
+  return agentConfig;
 }
 
 /**
@@ -104,8 +120,9 @@ async function processStartSession(job: Job<StartSessionJobData>): Promise<JobRe
 
   console.log(`[Worker] Created session ${session.id} at ${session.sandboxPath}`);
 
-  // Get MCP config
+  // Get MCP config and agent config
   const mcpConfig = await getMcpConfig();
+  const agentCfg = await getAgentConfig();
 
   // Run the agent session
   const result = await runSession(
@@ -113,7 +130,8 @@ async function processStartSession(job: Job<StartSessionJobData>): Promise<JobRe
     message,
     mcpConfig,
     (msg) => sendToSlack(session, msg),
-    requestApproval
+    requestApproval,
+    agentCfg || undefined
   );
 
   return {
@@ -135,7 +153,7 @@ async function processContinueSession(job: Job<ContinueSessionJobData>): Promise
   console.log(`[Worker] Continuing session ${sessionId}`);
 
   // Get existing session
-  const session = await getSession(sessionId);
+  let session = await getSession(sessionId);
   if (!session) {
     return {
       success: false,
@@ -143,11 +161,37 @@ async function processContinueSession(job: Job<ContinueSessionJobData>): Promise
     };
   }
 
+  console.log(`[Worker] Session sandbox path: ${session.sandboxPath}`);
+  console.log(`[Worker] Session server_session_id: ${session.serverSessionId || "not set"}`);
+
   // Update status
   await updateSessionStatus(sessionId, "active");
 
-  // Get MCP config
+  // Get MCP config and agent config
   const mcpConfig = await getMcpConfig();
+  const agentCfg = await getAgentConfig();
+  console.log(`[Worker] MCP servers: ${Object.keys(mcpConfig.servers)}`);
+  console.log(`[Worker] PostgreSQL MCP env: ${JSON.stringify(mcpConfig.servers.postgres?.env)}`);
+
+  // Wait for server_session_id if not yet available
+  // This handles race condition where continue_session is queued before
+  // the previous start_session or continue_session has completed
+  if (!session.serverSessionId) {
+    console.log(`[Worker] Waiting for server_session_id to be available...`);
+    const maxAttempts = 10; // Wait up to 5 seconds
+    let attempts = 0;
+    while (!session.serverSessionId && attempts < maxAttempts) {
+      await new Promise(resolve => setTimeout(resolve, 500)); // Wait 500ms
+      session = await getSession(sessionId);
+      attempts++;
+      console.log(`[Worker] Waiting for server_session_id... attempt ${attempts}/${maxAttempts}`);
+    }
+    if (session.serverSessionId) {
+      console.log(`[Worker] server_session_id is now available: ${session.serverSessionId}`);
+    } else {
+      console.warn(`[Worker] server_session_id still not available after ${maxAttempts} attempts, continuing without resume`);
+    }
+  }
 
   // Continue the session
   const result = await continueSession(
@@ -155,7 +199,8 @@ async function processContinueSession(job: Job<ContinueSessionJobData>): Promise
     message,
     mcpConfig,
     (msg) => sendToSlack(session, msg),
-    requestApproval
+    requestApproval,
+    agentCfg || undefined
   );
 
   return {
@@ -175,7 +220,7 @@ async function processApproveTool(job: Job<ApproveToolJobData>): Promise<JobResu
   console.log(`[Worker] Processing approval for session ${sessionId}, tool ${toolUseId}: ${decision}`);
 
   // Get existing session
-  const session = await getSession(sessionId);
+  let session = await getSession(sessionId);
   if (!session) {
     return {
       success: false,
@@ -217,8 +262,24 @@ async function processApproveTool(job: Job<ApproveToolJobData>): Promise<JobResu
   // Update session status
   await updateSessionStatus(sessionId, "active");
 
-  // Get MCP config
+  // Get MCP config and agent config
   const mcpConfig = await getMcpConfig();
+  const agentCfg = await getAgentConfig();
+
+  // Wait for server_session_id if not yet available (same as continue_session)
+  if (!session.serverSessionId) {
+    console.log(`[Worker] Waiting for server_session_id before resuming...`);
+    const maxAttempts = 10;
+    let attempts = 0;
+    while (!session.serverSessionId && attempts < maxAttempts) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+      session = await getSession(sessionId);
+      attempts++;
+    }
+    if (!session.serverSessionId) {
+      console.warn(`[Worker] server_session_id still not available, resuming without resume`);
+    }
+  }
 
   // Resume session with approved tool
   const result = await resumeSession(
@@ -226,7 +287,8 @@ async function processApproveTool(job: Job<ApproveToolJobData>): Promise<JobResu
     mcpConfig,
     (msg) => sendToSlack(session, msg),
     requestApproval,
-    approval.toolName
+    approval.toolName,
+    agentCfg || undefined
   );
 
   return {

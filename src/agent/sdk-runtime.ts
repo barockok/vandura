@@ -3,7 +3,10 @@ import type { BetaTextBlock } from "@anthropic-ai/sdk/resources/beta/messages/me
 import { env } from "../config/env.js";
 import type { PendingApproval, Session } from "../queue/types.js";
 import type { LoadedMcpConfig } from "./mcp-loader.js";
-import { getToolTier } from "./permissions.js";
+import { getToolTier, getToolInfo } from "./permissions.js";
+import { updateServerSessionId } from "./session.js";
+import { buildSystemPrompt } from "./prompt.js";
+import type { AgentConfig } from "../config/types.js";
 
 /**
  * Message types for streaming to Slack
@@ -53,8 +56,29 @@ export class ApprovalRequiredError extends Error {
 export function createQueryOptions(
   session: Session,
   mcpConfig: LoadedMcpConfig,
-  onApprovalNeeded: ApprovalCallback
+  onApprovalNeeded: ApprovalCallback,
+  agentConfig?: AgentConfig,
+  isResuming: boolean = false
 ): Options {
+  // Build system prompt with guardrails
+  let systemPrompt: string | undefined;
+  if (agentConfig) {
+    // Build guardrails from MCP config tool tiers
+    const guardrails: Record<string, string> = {};
+    for (const [toolName, info] of mcpConfig.toolTiers.entries()) {
+      if (info.guardrails) {
+        guardrails[toolName] = info.guardrails;
+      }
+    }
+
+    systemPrompt = buildSystemPrompt({
+      agentName: agentConfig.name,
+      personality: agentConfig.personality,
+      systemPromptExtra: agentConfig.system_prompt_extra,
+      guardrails,
+    });
+  }
+
   // Create permission callback wrapper
   const permissionHandler = async (
     toolName: string,
@@ -95,9 +119,10 @@ export function createQueryOptions(
     cwd: session.sandboxPath,
     mcpServers: mcpConfig.servers,
     canUseTool: permissionHandler,
-    persistSession: true,
+    persistSession: !isResuming, // Don't persist when resuming - we're continuing existing session
     model: env.ANTHROPIC_MODEL,
     pathToClaudeCodeExecutable: env.CLAUDE_CODE_PATH,
+    systemPrompt,
     env: {
       ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY,
       ...(env.ANTHROPIC_BASE_URL ? { ANTHROPIC_BASE_URL: env.ANTHROPIC_BASE_URL } : {}),
@@ -114,11 +139,12 @@ export async function runSession(
   userMessage: string,
   mcpConfig: LoadedMcpConfig,
   onMessage: MessageCallback,
-  onApprovalNeeded: ApprovalCallback
+  onApprovalNeeded: ApprovalCallback,
+  agentConfig?: AgentConfig
 ): Promise<SessionResult> {
   console.log(`[Runtime] Starting session ${session.id}`);
 
-  const options = createQueryOptions(session, mcpConfig, onApprovalNeeded);
+  const options = createQueryOptions(session, mcpConfig, onApprovalNeeded, agentConfig);
 
   try {
     const queryResult = query({
@@ -126,13 +152,31 @@ export async function runSession(
       options,
     });
 
+    let capturedServerSessionId: string | null = null;
+
     // Process message stream
     for await (const msg of queryResult) {
+      // Capture server session ID from result message IMMEDIATELY
+      if (msg.type === "result" && (msg as any).session_id) {
+        const serverSessionId = (msg as any).session_id;
+        capturedServerSessionId = serverSessionId;
+        console.log(`[Runtime] Captured server session ID: ${serverSessionId}`);
+        // Persist immediately so continue_session can use it
+        await updateServerSessionId(session.id, serverSessionId);
+      }
+
       const agentMessage = processSdkMessage(msg, session.id);
 
       if (agentMessage) {
         await onMessage(agentMessage);
       }
+    }
+
+    // Ensure server session ID is persisted before session completes
+    if (capturedServerSessionId && !session.serverSessionId) {
+      console.log(`[Runtime] Ensuring server session ID is persisted: ${capturedServerSessionId}`);
+      // Already persisted above, but session object in memory still has old value
+      // The DB has the correct value, so continue_session will pick it up
     }
 
     await onMessage({ type: "complete", sessionId: session.id });
@@ -162,11 +206,13 @@ export async function resumeSession(
   mcpConfig: LoadedMcpConfig,
   onMessage: MessageCallback,
   onApprovalNeeded: ApprovalCallback,
-  allowedTool?: string
+  allowedTool?: string,
+  agentConfig?: AgentConfig
 ): Promise<SessionResult> {
   console.log(`[Runtime] Resuming session ${session.id}`);
+  console.log(`[Runtime] Server session ID: ${session.serverSessionId || "not stored"}`);
 
-  const options = createQueryOptions(session, mcpConfig, onApprovalNeeded);
+  const options = createQueryOptions(session, mcpConfig, onApprovalNeeded, agentConfig, true);
 
   // If we have an allowed tool, add it to allowedTools
   if (allowedTool) {
@@ -178,12 +224,20 @@ export async function resumeSession(
       prompt: "", // Empty prompt for resume
       options: {
         ...options,
-        resume: session.id,
+        // Use stored server session ID if available
+        ...(session.serverSessionId ? { resume: session.serverSessionId } : {}),
       },
     });
 
     // Process message stream
     for await (const msg of queryResult) {
+      // Capture server session ID from result message
+      if (msg.type === "result" && (msg as any).session_id) {
+        const serverSessionId = (msg as any).session_id;
+        console.log(`[Runtime] Updated server session ID: ${serverSessionId}`);
+        await updateServerSessionId(session.id, serverSessionId);
+      }
+
       const agentMessage = processSdkMessage(msg, session.id);
 
       if (agentMessage) {
@@ -255,23 +309,40 @@ export async function continueSession(
   userMessage: string,
   mcpConfig: LoadedMcpConfig,
   onMessage: MessageCallback,
-  onApprovalNeeded: ApprovalCallback
+  onApprovalNeeded: ApprovalCallback,
+  agentConfig?: AgentConfig
 ): Promise<SessionResult> {
   console.log(`[Runtime] Continuing session ${session.id}`);
+  console.log(`[Runtime] Server session ID: ${session.serverSessionId || "not stored"}`);
 
-  const options = createQueryOptions(session, mcpConfig, onApprovalNeeded);
+  const options = createQueryOptions(session, mcpConfig, onApprovalNeeded, agentConfig, true);
 
   try {
-    const queryResult = query({
+    const queryOptions: any = {
       prompt: userMessage,
       options: {
         ...options,
-        resume: session.id,
+        // Use stored server session ID if available
+        ...(session.serverSessionId ? { resume: session.serverSessionId } : {}),
       },
-    });
+    };
+
+    // If no server session ID, log a warning - context will be lost
+    if (!session.serverSessionId) {
+      console.warn(`[Runtime] No server session ID for session ${session.id} - starting fresh context`);
+    }
+
+    const queryResult = query(queryOptions);
 
     // Process message stream
     for await (const msg of queryResult) {
+      // Capture server session ID from result message
+      if (msg.type === "result" && (msg as any).session_id) {
+        const serverSessionId = (msg as any).session_id;
+        console.log(`[Runtime] Updated server session ID: ${serverSessionId}`);
+        await updateServerSessionId(session.id, serverSessionId);
+      }
+
       const agentMessage = processSdkMessage(msg, session.id);
 
       if (agentMessage) {
