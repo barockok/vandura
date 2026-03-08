@@ -1,15 +1,25 @@
 ## Implementation Status: ✅ COMPLETE (March 08, 2026)
 
+**Architecture: Hybrid Approach**
+
+The pure hooks approach was found to have a fundamental limitation: `permissionDecision: 'ask'` triggers the SDK's built-in permission dialog, not our Slack-based approval flow. Hooks don't support `interrupt: true` which is needed for pause/resume.
+
+**Solution:** Hybrid architecture combining both approaches:
+- **`canUseTool` callback**: Handles tier-based approvals with `interrupt: true` for pause/resume
+- **Hooks (PostToolUse, SessionStart, Notification)**: Handle audit logging and notifications
+
 All 6 phases have been implemented:
 
 - ✅ **Phase 1**: Hook Infrastructure - Created `.claude/settings.local.json`, `src/hooks/` directory
-- ✅ **Phase 2**: PreToolUse Hook - Tier-based approval with make-checker pattern
+- ✅ **Phase 2**: PreToolUse Hook - Pass-through (allows all, `canUseTool` handles approvals)
 - ✅ **Phase 3**: PostToolUse Hook - Audit logging to `audit_logs` table
 - ✅ **Phase 4**: Session Lifecycle Hooks - SessionStart and Notification hooks
-- ✅ **Phase 5**: Approval Resolution - Integrated with existing approval flow
-- ✅ **Phase 6**: Cleanup - Removed `canUseTool` callback, hooks now handle permissions
+- ✅ **Phase 5**: Approval Resolution - Integrated with existing approval flow via `canUseTool`
+- ✅ **Phase 6**: Cleanup - `canUseTool` retained for approvals, hooks handle audit logging
 
 **Tests**: 114 tests pass (Docker-dependent tests skipped due to container availability)
+
+**Key Fix (Debug Session)**: Hook paths in `.claude/settings.local.json` must point to compiled `.js` files in `dist/`, not `.ts` source files.
 
 ---
 
