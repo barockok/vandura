@@ -86,6 +86,9 @@ export function createQueryOptions(
   ): Promise<PermissionResult> => {
     const tier = getToolTier(toolName);
 
+    // Debug logging for tool calls
+    console.log(`[Runtime] Tool call: ${toolName}, input:`, JSON.stringify(input));
+
     // Tier 1: Auto-approve
     if (tier === 1) {
       console.log(`[Runtime] Auto-approving tier 1 tool: ${toolName}`);
