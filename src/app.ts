@@ -1,45 +1,29 @@
 import { App } from "@slack/bolt";
 import path from "node:path";
-import { AgentRuntime, type ChatOptions } from "./agent/runtime.js";
-import { ToolExecutor } from "./agent/tool-executor.js";
-import { ApprovalEngine } from "./approval/engine.js";
 import { AuditLogger } from "./audit/logger.js";
 import { env } from "./config/env.js";
 import { loadAgents, loadRoles, loadToolPolicies } from "./config/loader.js";
 import type { RolePermission } from "./config/types.js";
 import { createPool } from "./db/connection.js";
 import { runMigrations } from "./db/migrate.js";
+import { setPool } from "./db/pool.js";
 import { buildHealthCheck, startHealthServer } from "./health.js";
-import { McpManager } from "./mcp/manager.js";
-import type { DiscoveredTool } from "./mcp/types.js";
+import { loadToolPolicies as loadToolPoliciesForWorker } from "./agent/permissions.js";
+import { getSessionByThread } from "./agent/session.js";
 import { PermissionService } from "./permissions/service.js";
-import { SlackApprovalFlow } from "./slack/approval-flow.js";
-import { CheckerFlow } from "./slack/checker-flow.js";
-import { markdownToSlack } from "./slack/format.js";
 import { SlackGateway } from "./slack/gateway.js";
 import { OnboardingFlow } from "./slack/onboarding-flow.js";
+import { createSlackResponder } from "./slack/responder.js";
 import { TaskLifecycle } from "./slack/task-lifecycle.js";
-import { StorageService } from "./storage/s3.js";
 import { ThreadManager } from "./threads/manager.js";
-import type { ToolResult } from "./tools/types.js";
-import { UploadFileTool } from "./tools/upload-file.js";
 import { UserManager } from "./users/manager.js";
-
-interface PendingApproval {
-  approvalId: string;
-  toolName: string;
-  toolInput: Record<string, unknown>;
-  toolUseId: string;
-  tier: 2 | 3;
-  taskId: string;
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type SayFn = (msg: any) => Promise<unknown>;
+import { createQueue, closeQueue } from "./queue/index.js";
+import { createWorker, closeWorker, setSlackClient } from "./queue/worker.js";
+import type { Worker } from "bullmq";
 
 export async function createApp() {
   const configDir = path.join(process.cwd(), "config");
-  const toolPolicies = await loadToolPolicies(path.join(configDir, "tool-policies.yml"));
+  await loadToolPolicies(path.join(configDir, "tool-policies.yml"));
   const agents = await loadAgents(path.join(configDir, "agents.yml"));
 
   let roles: Record<string, RolePermission> = {};
@@ -50,6 +34,7 @@ export async function createApp() {
   }
 
   const pool = createPool(env.DATABASE_URL);
+  setPool(pool); // Share pool with worker modules (session.ts, permissions.ts)
   await runMigrations(pool);
 
   const userManager = new UserManager(pool);
@@ -70,21 +55,7 @@ export async function createApp() {
   const agentId: string = agentRow.rows[0].id;
 
   const threadManager = new ThreadManager(pool);
-  const approvalEngine = new ApprovalEngine(pool, toolPolicies);
   const auditLogger = new AuditLogger(pool);
-  const approvalFlow = new SlackApprovalFlow();
-  const storage = new StorageService({
-    endpoint: env.S3_ENDPOINT, accessKey: env.S3_ACCESS_KEY,
-    secretKey: env.S3_SECRET_KEY, bucket: env.S3_BUCKET,
-    region: env.S3_REGION, signedUrlExpiry: env.S3_SIGNED_URL_EXPIRY,
-  });
-  await storage.ensureBucket();
-
-  // Initialize MCP Manager and load MCP servers
-  const mcpManager = new McpManager();
-  await mcpManager.load(path.join(configDir, "mcp-servers.yml"));
-  const discoveredTools = mcpManager.getDiscoveredTools();
-  console.log(`[MCP] Discovered ${discoveredTools.length} tools from MCP servers`);
 
   const slackApp = new App({
     token: env.SLACK_BOT_TOKEN,
@@ -97,13 +68,15 @@ export async function createApp() {
   const authResult = await slackApp.client.auth.test();
   if (authResult.user_id) gateway.setBotUserId(authResult.user_id);
 
-  // State: active runtimes + pending approvals per thread
-  const activeAgents = new Map<string, AgentRuntime>();
-  const activeExecutors = new Map<string, ToolExecutor>();
-  const pendingApprovals = new Map<string, PendingApproval>();
-  const pendingCheckerNomination = new Set<string>();
+  // Initialize queue and worker
+  const queue = createQueue();
+  const responder = createSlackResponder(slackApp);
+  setSlackClient(responder);
+
+  // Load tool policies for worker
+  await loadToolPoliciesForWorker(path.join(configDir, "tool-policies.yml"));
+
   const pendingOnboarding = new Map<string, string>(); // DM channel → slack user ID
-  const activeUploadDefs = new Map<string, ReturnType<UploadFileTool["definition"]>>();
 
   function formatDuration(start: Date, end: Date): string {
     const ms = end.getTime() - start.getTime();
@@ -112,148 +85,7 @@ export async function createApp() {
     return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
   }
 
-  // Helper: run agent chat with tools and handle approval flow
-  async function runAgentChat(
-    runtime: AgentRuntime,
-    executor: ToolExecutor,
-    task: { id: string; initiatorSlackId: string; checkerSlackId: string | null },
-    userMessage: string,
-    threadTs: string,
-    say: SayFn,
-  ): Promise<void> {
-    // Build tools list from MCP discovered tools + local tools (upload_file)
-    const mcpToolDefs = discoveredTools.map((t) => t.definition);
-    const chatOptions: ChatOptions = {
-      tools: [...mcpToolDefs, ...(activeUploadDefs.has(threadTs) ? [activeUploadDefs.get(threadTs)!] : [])],
-      toolExecutor: async (toolName, toolInput, toolUseId) => {
-        const result = await executor.execute(toolName, toolInput, toolUseId);
-
-        if (result.needsApproval && result.approvalId && result.tier) {
-          // Tier 3 needs a checker — ask for one if not assigned yet
-          if (result.tier === 3 && !task.checkerSlackId && !pendingCheckerNomination.has(threadTs)) {
-            const checkerFlow = new CheckerFlow();
-            await say({ text: checkerFlow.buildNominationPrompt(), thread_ts: threadTs });
-            pendingCheckerNomination.add(threadTs);
-          }
-
-          await approvalFlow.postApprovalRequest({
-            say,
-            threadTs,
-            approvalId: result.approvalId,
-            toolName,
-            toolInput,
-            tier: result.tier as 2 | 3,
-            initiatorSlackId: task.initiatorSlackId,
-            checkerSlackId: task.checkerSlackId,
-          });
-
-          pendingApprovals.set(threadTs, {
-            approvalId: result.approvalId,
-            toolName,
-            toolInput,
-            toolUseId,
-            tier: result.tier as 2 | 3,
-            taskId: task.id,
-          });
-
-          return {
-            output: `Approval requested (tier ${result.tier}). Waiting for ${result.approver} to approve or deny.`,
-            isError: false,
-          };
-        }
-
-        return result as ToolResult;
-      },
-    };
-
-    const response = await runtime.chat(userMessage, chatOptions);
-    await threadManager.addMessage(task.id, "assistant", response.text, {
-      toolCalls: response.toolCalls,
-    });
-    await threadManager.addTokenUsage(task.id, response.usage.inputTokens, response.usage.outputTokens);
-
-    // Convert Markdown to Slack mrkdwn before sending
-    const slackText = markdownToSlack(response.text);
-
-    // Upload large responses to S3
-    if (slackText.length > 4000) {
-      const { signedUrl } = await storage.upload({
-        key: `${task.id}/response-${Date.now()}.txt`,
-        content: Buffer.from(response.text),
-        contentType: "text/plain",
-      });
-      const preview = markdownToSlack(response.text.slice(0, 500)) + `...\n\n📎 Full response: [Download](${signedUrl})`;
-      await say({ text: preview, thread_ts: threadTs });
-    } else {
-      await say({ text: slackText, thread_ts: threadTs });
-    }
-  }
-
-  // Helper: process an approval decision (used by both text replies and button clicks)
-  async function processApprovalDecision(
-    channel: string,
-    threadTs: string,
-    userId: string,
-    decision: "approved" | "rejected",
-    say: SayFn,
-  ): Promise<void> {
-    const pending = pendingApprovals.get(threadTs);
-    if (!pending) return;
-
-    const task = await threadManager.findByThread(channel, threadTs);
-    if (!task) return;
-
-    const canApprove = approvalFlow.canApprove({
-      tier: pending.tier,
-      userId,
-      initiatorSlackId: task.initiatorSlackId,
-      checkerSlackId: task.checkerSlackId,
-    });
-
-    if (!canApprove) {
-      const msg = pending.tier === 2
-        ? `Only <@${task.initiatorSlackId}> can approve this (tier 2).`
-        : `Only the checker can approve this (tier 3).`;
-      await say({ text: msg, thread_ts: threadTs });
-      return;
-    }
-
-    await approvalEngine.resolve(pending.approvalId, decision, userId);
-    pendingApprovals.delete(threadTs);
-
-    if (decision === "rejected") {
-      await say({ text: `❌ Action denied by <@${userId}>. The tool will not be executed.`, thread_ts: threadTs });
-      await auditLogger.log({
-        taskId: task.id, action: "approval_rejected", actor: userId,
-        detail: { toolName: pending.toolName, approvalId: pending.approvalId },
-      });
-      return;
-    }
-
-    // Approved — execute the tool
-    await say({ text: `✅ Approved by <@${userId}>. Executing...`, thread_ts: threadTs });
-    const executor = activeExecutors.get(threadTs);
-    if (!executor) return;
-    executor.markApproved(pending.tier);
-
-    const toolResult = await executor.executeApproved(
-      pending.toolName, pending.toolInput, userId,
-    );
-
-    const runtime = activeAgents.get(threadTs);
-    if (!runtime) return;
-
-    try {
-      const agentMsg = `Tool "${pending.toolName}" was approved and executed. Result: ${toolResult.output}`;
-      await threadManager.addMessage(task.id, "user", agentMsg, { source: "approval_result" });
-      await runAgentChat(runtime, executor, task, agentMsg, threadTs, say);
-    } catch (err) {
-      const errorMsg = `Error after approval: ${err instanceof Error ? err.message : "unknown"}`;
-      await say({ text: errorMsg, thread_ts: threadTs });
-    }
-  }
-
-  // Handle @mentions — create new task thread
+  // Handle @mentions — queue a new session
   gateway.onMention(async ({ user, text, channel, ts, say }) => {
     await auditLogger.log({
       action: "mention_received", actor: user, detail: { text, channel },
@@ -261,86 +93,28 @@ export async function createApp() {
 
     await say({ text: "On it 👀", thread_ts: ts });
 
+    // Create task for tracking
     const task = await threadManager.createTask({
       slackThreadTs: ts, slackChannel: channel, agentId, initiatorSlackId: user,
     });
 
-    const runtime = new AgentRuntime({
-      anthropicApiKey: env.ANTHROPIC_API_KEY,
-      anthropicBaseUrl: env.ANTHROPIC_BASE_URL,
-      agentConfig, toolPolicies,
-    });
-    activeAgents.set(ts, runtime);
-
-    let vanduraUser = await userManager.findBySlackId(user);
-    if (!vanduraUser) {
-      vanduraUser = await userManager.findOrCreate(user, user, "business");
-    }
-    const uploadTool = new UploadFileTool(storage, task.id);
-    activeUploadDefs.set(ts, uploadTool.definition());
-    const executor = new ToolExecutor({
-      approvalEngine, auditLogger, taskId: task.id,
-      initiatorSlackId: user, checkerSlackId: null,
-      permissionService,
-      initiatorUser: vanduraUser,
-      toolRunners: {
-        db_query: async (input) => {
-          try {
-            const result = await mcpManager.callTool("postgres", "query", input);
-            // Parse MCP response - expects { rows, columns, rowCount } format
-            const content = Array.isArray(result.content) ? result.content[0] : result.content;
-            return { output: JSON.stringify(content), isError: false };
-          } catch (err) {
-            return {
-              output: err instanceof Error ? err.message : "Unknown error",
-              isError: true
-            };
-          }
-        },
-        db_write: async (input) => {
-          try {
-            const result = await mcpManager.callTool("postgres", "execute", input);
-            const content = Array.isArray(result.content) ? result.content[0] : result.content;
-            return { output: JSON.stringify(content), isError: false };
-          } catch (err) {
-            return {
-              output: err instanceof Error ? err.message : "Unknown error",
-              isError: true
-            };
-          }
-        },
-        upload_file: async (input) => {
-          console.log(`[upload_file] Received input:`, JSON.stringify(input));
-          if (!input || typeof input !== 'object') {
-            return { output: `upload_file error: invalid input object - ${JSON.stringify(input)}`, isError: true };
-          }
-          try {
-            const r = await uploadTool.execute(input as { filename: string; content: string; content_type: string });
-            return { output: JSON.stringify(r) };
-          } catch (err) {
-            console.error(`[upload_file] Error:`, err);
-            return {
-              output: `upload_file error: ${err instanceof Error ? err.message : 'unknown error'}. Input was: ${JSON.stringify(input)}`,
-              isError: true
-            };
-          }
-        },
-      },
-    });
-    activeExecutors.set(ts, executor);
-
     const cleanText = text.replace(/<@[^>]+>/g, "").trim();
     await threadManager.addMessage(task.id, "user", cleanText, null);
 
-    try {
-      await runAgentChat(runtime, executor, task, cleanText, ts, say);
-    } catch (err) {
-      const errorMsg = `Sorry, I encountered an error: ${err instanceof Error ? err.message : "unknown error"}`;
-      await say({ text: errorMsg, thread_ts: ts });
-    }
+    // Queue a start_session job
+    await queue.add("start_session", {
+      type: "start_session" as const,
+      timestamp: Date.now(),
+      channelId: channel,
+      userId: user,
+      message: cleanText,
+      threadTs: ts,
+    });
+
+    console.log(`[Gateway] Queued start_session for channel ${channel}, thread ${ts}`);
   });
 
-  // Handle thread replies — approval decisions or continued conversation
+  // Handle thread replies — queue a continue_session job or handle approvals
   gateway.onThreadMessage(async ({ user, text, channel, thread_ts, say }) => {
     const task = await threadManager.findByThread(channel, thread_ts);
     if (!task) return;
@@ -350,22 +124,17 @@ export async function createApp() {
     const closeCommand = taskLifecycle.parseCommand(text);
     if (closeCommand) {
       await threadManager.closeTask(task.id, closeCommand);
-      activeAgents.delete(thread_ts);
-      activeExecutors.delete(thread_ts);
-      activeUploadDefs.delete(thread_ts);
-      pendingApprovals.delete(thread_ts);
-      pendingCheckerNomination.delete(thread_ts);
 
       const messages = await threadManager.getMessages(task.id);
       const toolCallCount = messages.filter(m => m.metadata?.toolCalls).length;
-      const approvalCount = (await approvalEngine.getPendingByTask(task.id)).length;
       const duration = formatDuration(task.createdAt, new Date());
 
       const closedTask = await threadManager.findByThread(channel, thread_ts);
       const summary = taskLifecycle.buildSummary({
         taskId: task.id, status: closeCommand,
         messageCount: messages.length, toolCallCount,
-        approvalCount, duration,
+        approvalCount: 0, // TODO: Get from approvals table
+        duration,
         inputTokens: closedTask?.inputTokens ?? 0,
         outputTokens: closedTask?.outputTokens ?? 0,
       });
@@ -373,47 +142,61 @@ export async function createApp() {
       return;
     }
 
-    // Check if this is a checker nomination reply
-    if (pendingCheckerNomination.has(thread_ts)) {
-      const checkerFlow = new CheckerFlow();
-      const checkerId = checkerFlow.extractCheckerFromReply(text);
-      if (checkerId) {
-        pendingCheckerNomination.delete(thread_ts);
-        if (checkerId !== "skip") {
-          await threadManager.setChecker(task.id, checkerId);
-          await say({ text: `<@${checkerId}> set as checker for this task.`, thread_ts });
-        } else {
-          await say({ text: "No checker assigned. Tier 3 actions will require any channel member to approve.", thread_ts });
-        }
+    // Look up the agent session by thread
+    const agentSession = await getSessionByThread(channel, thread_ts);
+
+    // Check for approval/deny text
+    const lowerText = text.toLowerCase().trim();
+    if (lowerText === "approve" || lowerText === "approved" || lowerText === "yes") {
+      if (!agentSession) {
+        await say({ text: "No active session found for this thread.", thread_ts });
         return;
       }
+      await queue.add("approve_tool", {
+        type: "approve_tool" as const,
+        timestamp: Date.now(),
+        sessionId: agentSession.id,
+        toolUseId: "",
+        decision: "allow" as const,
+        approverId: user,
+      });
+      await say({ text: "Processing approval...", thread_ts });
+      return;
     }
 
-    // Check if this is an approval decision (text-based fallback)
-    const pending = pendingApprovals.get(thread_ts);
-    if (pending) {
-      const decision = approvalFlow.parseDecision(text);
-      if (decision) {
-        await processApprovalDecision(channel, thread_ts, user, decision, say);
+    if (lowerText === "deny" || lowerText === "denied" || lowerText === "no") {
+      if (!agentSession) {
+        await say({ text: "No active session found for this thread.", thread_ts });
         return;
       }
+      await queue.add("approve_tool", {
+        type: "approve_tool" as const,
+        timestamp: Date.now(),
+        sessionId: agentSession.id,
+        toolUseId: "",
+        decision: "deny" as const,
+        approverId: user,
+      });
+      await say({ text: "Processing denial...", thread_ts });
+      return;
     }
 
-    // Regular conversation message
-    const runtime = activeAgents.get(thread_ts);
-    if (!runtime) return;
-
-    const executor = activeExecutors.get(thread_ts);
-    if (!executor) return;
-
+    // Regular conversation message — queue continue_session
     await threadManager.addMessage(task.id, "user", text, null);
 
-    try {
-      await runAgentChat(runtime, executor, task, text, thread_ts, say);
-    } catch (err) {
-      const errorMsg = `Sorry, I encountered an error: ${err instanceof Error ? err.message : "unknown error"}`;
-      await say({ text: errorMsg, thread_ts });
+    if (!agentSession) {
+      console.warn(`[Gateway] No agent session found for thread ${thread_ts}, skipping continue`);
+      return;
     }
+
+    await queue.add("continue_session", {
+      type: "continue_session" as const,
+      timestamp: Date.now(),
+      sessionId: agentSession.id,
+      message: text,
+    });
+
+    console.log(`[Gateway] Queued continue_session for thread ${thread_ts}`);
   });
 
   gateway.onMemberJoined(async ({ user, channel }) => {
@@ -496,24 +279,38 @@ export async function createApp() {
     }
   });
 
-  const healthCheck = buildHealthCheck({ pool, storage });
+  const healthCheck = buildHealthCheck({ pool });
   let healthServer: ReturnType<typeof startHealthServer> | null = null;
+  let worker: Worker | null = null;
 
   return {
     start: async () => {
+      // Start worker
+      worker = createWorker();
+
+      // Start Slack gateway
       await gateway.start();
       healthServer = startHealthServer(healthCheck);
+
+      console.log("[App] Started worker and Slack gateway");
     },
     stop: async () => {
       console.log("Shutting down...");
       healthServer?.close();
+
+      if (worker) {
+        await closeWorker(worker);
+      }
+
       await slackApp.stop();
+      await closeQueue(queue);
       await pool.end();
-      await mcpManager.shutdown();
+
       console.log("Shutdown complete.");
     },
     pool, gateway, threadManager,
-    approvalEngine, auditLogger, storage, healthCheck,
-    userManager, permissionService, onboardingFlow, mcpManager,
+    auditLogger, healthCheck,
+    userManager, permissionService, onboardingFlow,
+    queue, worker,
   };
 }

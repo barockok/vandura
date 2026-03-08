@@ -11,6 +11,14 @@ services:
       timeout: 3s
       retries: 5
 
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
   minio:
     image: minio/minio:latest
     command: server /data --console-address ":9001"
@@ -38,10 +46,13 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
       minio-init:
         condition: service_completed_successfully
     environment:
       DATABASE_URL: postgres://vandura:vandura@postgres:5432/vandura_test
+      REDIS_URL: redis://redis:6379
       KMS_PROVIDER: local
       S3_ENDPOINT: http://minio:9000
       S3_ACCESS_KEY: vandura

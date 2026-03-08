@@ -5,7 +5,7 @@ import { createServer, type Server } from "node:http";
 
 interface HealthDeps {
   pool: Pool;
-  storage: StorageService;
+  storage?: StorageService;
   credentialManager?: CredentialManager;
 }
 
@@ -38,11 +38,15 @@ export function buildHealthCheck(deps: HealthDeps): () => Promise<HealthResult> 
       allOk = false;
     }
 
-    try {
-      await deps.storage.ensureBucket();
-    } catch (err) {
-      storageStatus = `error: ${err instanceof Error ? err.message : "unknown"}`;
-      allOk = false;
+    if (deps.storage) {
+      try {
+        await deps.storage.ensureBucket();
+      } catch (err) {
+        storageStatus = `error: ${err instanceof Error ? err.message : "unknown"}`;
+        allOk = false;
+      }
+    } else {
+      storageStatus = "not_configured";
     }
 
     // Check OAuth token health if credential manager is available
