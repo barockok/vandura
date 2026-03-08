@@ -18,6 +18,8 @@ export async function createSession(params: {
   channelId: string;
   userId: string;
   threadTs?: string;
+  initiatorSlackId?: string;
+  checkerSlackId?: string;
 }): Promise<Session> {
   const id = randomUUID();
   const date = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
@@ -39,10 +41,10 @@ export async function createSession(params: {
     created_at: Date;
     updated_at: Date;
   }>(
-    `INSERT INTO sessions (id, channel_id, user_id, thread_ts, sandbox_path, status)
-     VALUES ($1, $2, $3, $4, $5, $6)
+    `INSERT INTO sessions (id, channel_id, user_id, thread_ts, sandbox_path, status, initiator_slack_id, checker_slack_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
      RETURNING *`,
-    [id, params.channelId, params.userId, params.threadTs || null, sandboxPath, "active"]
+    [id, params.channelId, params.userId, params.threadTs || null, sandboxPath, "active", params.initiatorSlackId, params.checkerSlackId]
   );
 
   const row = result.rows[0];
@@ -71,6 +73,8 @@ interface SessionRow {
   status: SessionStatus;
   created_at: Date;
   updated_at: Date;
+  initiator_slack_id: string | null;
+  checker_slack_id: string | null;
 }
 
 function rowToSession(row: SessionRow): Session {
@@ -83,6 +87,8 @@ function rowToSession(row: SessionRow): Session {
     status: row.status,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    initiatorSlackId: row.initiator_slack_id || undefined,
+    checkerSlackId: row.checker_slack_id || undefined,
   };
 }
 

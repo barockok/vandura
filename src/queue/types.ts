@@ -104,6 +104,8 @@ export interface Session {
   status: SessionStatus;
   createdAt: Date;
   updatedAt: Date;
+  initiatorSlackId?: string;
+  checkerSlackId?: string;
 }
 
 /**

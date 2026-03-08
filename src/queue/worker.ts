@@ -115,10 +115,13 @@ async function processStartSession(job: Job<StartSessionJobData>): Promise<JobRe
   await loadToolPolicies("config/tool-policies.yml");
 
   // Create session with sandbox directory
+  // userId is the Slack user ID who triggered the session
   const session = await createSession({
     channelId,
     userId,
     threadTs,
+    initiatorSlackId: userId, // Store initiator for Tier 2 approvals
+    checkerSlackId: undefined, // Will be set later if needed for Tier 3
   });
 
   console.log(`[Worker] Created session ${session.id} at ${session.sandboxPath}`);

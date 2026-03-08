@@ -1,10 +1,9 @@
-import { query, type Options, type PermissionResult, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import { query, type Options, type SDKMessage, type SettingSource } from "@anthropic-ai/claude-agent-sdk";
 import type { BetaTextBlock } from "@anthropic-ai/sdk/resources/beta/messages/messages.js";
 import { env } from "../config/env.js";
 import type { AgentConfig } from "../config/types.js";
 import type { PendingApproval, Session } from "../queue/types.js";
 import type { LoadedMcpConfig } from "./mcp-loader.js";
-import { getToolTier } from "./permissions.js";
 import { buildSystemPrompt } from "./prompt.js";
 
 /**
@@ -55,7 +54,7 @@ export class ApprovalRequiredError extends Error {
 export function createQueryOptions(
   session: Session,
   mcpConfig: LoadedMcpConfig,
-  onApprovalNeeded: ApprovalCallback,
+  _onApprovalNeeded: ApprovalCallback, // Kept for API compatibility, hooks handle approvals
   agentConfig?: AgentConfig,
   isResuming: boolean = false
 ): Options {
@@ -78,39 +77,6 @@ export function createQueryOptions(
     });
   }
 
-  // Create permission callback wrapper
-  const permissionHandler = async (
-    toolName: string,
-    input: Record<string, unknown>,
-    opts: { toolUseID: string; signal: AbortSignal }
-  ): Promise<PermissionResult> => {
-    const tier = getToolTier(toolName);
-
-    // Tier 1: Auto-approve
-    if (tier === 1) {
-      return { behavior: "allow" };
-    }
-
-    // Tier 2/3: Request approval
-    const { storePendingApproval } = await import("./permissions.js");
-    const approval = await storePendingApproval({
-      sessionId: session.id,
-      toolName,
-      toolInput: input,
-      toolUseId: opts.toolUseID,
-      tier,
-    });
-
-    await onApprovalNeeded(approval, session);
-
-    // Return deny with interrupt to pause session until approval
-    return {
-      behavior: "deny",
-      message: `Approval required for ${toolName} (tier ${tier}).`,
-      interrupt: true,
-    };
-  };
-
   // Build environment for Claude Code - exclude Claude Code internal variables
   // to prevent "nested session" detection
   const claudeEnv: Record<string, string> = {};
@@ -121,14 +87,15 @@ export function createQueryOptions(
     }
   }
 
-  const queryOptions = {
+  const queryOptions: Options = {
     cwd: session.sandboxPath,
     mcpServers: mcpConfig.servers,
-    canUseTool: permissionHandler,
+    // Note: canUseTool is omitted - hooks in settingSources handle permissions
     persistSession: !isResuming, // Don't persist when resuming - we're continuing existing session
     model: env.ANTHROPIC_MODEL,
     pathToClaudeCodeExecutable: env.CLAUDE_CODE_PATH,
     systemPrompt,
+    settingSources: ["local"] as SettingSource[], // Load hooks from .claude/settings.local.json
     // sessionId cannot be used with resume - SDK manages session ID for resumed sessions
     ...(isResuming ? {} : { sessionId: session.id }),
     env: {
