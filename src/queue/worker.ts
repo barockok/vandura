@@ -7,6 +7,7 @@ import { resolvePendingApproval, getPendingApproval, loadToolPolicies } from "..
 import { runSession, resumeSession, continueSession, type AgentMessage, type ApprovalCallback } from "../agent/sdk-runtime.js";
 import { loadAgents } from "../config/loader.js";
 import type { AgentConfig } from "../config/types.js";
+import { markdownToSlack } from "../slack/format.js";
 
 // Slack client placeholder - will be injected
 let slackClient: {
@@ -59,7 +60,9 @@ async function sendToSlack(session: Session, message: AgentMessage): Promise<voi
 
   switch (message.type) {
     case "text":
-      await slackClient.postMessage(session.channelId, message.content || "", session.threadTs || undefined);
+      // Convert Markdown to Slack mrkdwn format
+      const formattedContent = markdownToSlack(message.content || "");
+      await slackClient.postMessage(session.channelId, formattedContent, session.threadTs || undefined);
       break;
 
     case "error":
