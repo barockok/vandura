@@ -129,11 +129,9 @@ servers:
       - "${DATABASE_URL}"
     tools:
       - name: "query"
-        mapped_name: "db_query"
         tier: 1
         guardrails: "Prefer indexed queries. Avoid full table scans."
       - name: "execute"
-        mapped_name: "db_write"
         tier: 3
         guardrails: "Show exact SQL and affected rows."
 ```
@@ -167,13 +165,13 @@ roles:
   engineering:
     agents: [atlas, scribe, courier, sentinel]
     tool_tiers:
-      db_query: { max_tier: 3 }
-      db_write: { max_tier: 3 }
+      mcp__postgres__query: { max_tier: 3 }
+      mcp__postgres__execute: { max_tier: 3 }
   pm:
     agents: [atlas, scribe]
     tool_tiers:
-      db_query: { max_tier: 1 }
-      db_write: { max_tier: 0 }   # blocked
+      mcp__postgres__query: { max_tier: 1 }
+      mcp__postgres__execute: { max_tier: 0 }   # blocked
 ```
 
 ### Agents (`config/agents.yml`)
@@ -333,7 +331,7 @@ Vandura supports two types of MCP connections:
 ### Shared Connections
 
 Shared connections use a service account managed by the team. These include:
-- **Database** (`db_query`, `db_write`)
+- **Database** (`mcp__postgres__query`, `mcp__postgres__execute`)
 - **GCS/MinIO** (`mcp__gcs__*`)
 - **Grafana** (`mcp__grafana__*`)
 - **Elasticsearch** (`mcp__elastic__*`)
@@ -365,7 +363,7 @@ Admins can configure MCP servers via chat commands using `@sentinel`:
 ```
 
 ```
-@sentinel Use mcp_config to set_guardrail with tool_name=db_query, guardrail="No full table scans on tables over 1M rows"
+@sentinel Use mcp_config to set_guardrail with tool_name=mcp__postgres__query, guardrail="No full table scans on tables over 1M rows"
 ```
 
 The agent will generate YAML configuration for manual review and application (config-as-code approach).
@@ -465,7 +463,7 @@ kubectl logs -n vandura -l app=vandura
 | `SLACK_BOT_TOKEN` | Slack bot OAuth token | `xoxb-...` |
 | `SLACK_APP_TOKEN` | Slack app-level token (Socket Mode) | `xapp-...` |
 | `DATABASE_URL` | PostgreSQL connection string for app data | `postgres://user:pass@host:5432/vandura` |
-| `DB_TOOL_CONNECTION_URL` | PostgreSQL connection for db_query/db_write tools | `postgres://user:pass@host:5432/target_db` |
+| `DB_TOOL_CONNECTION_URL` | PostgreSQL connection for MCP postgres tools | `postgres://user:pass@host:5432/target_db` |
 | `S3_ENDPOINT` | S3-compatible storage endpoint | `https://storage.googleapis.com` or `http://minio:9000` |
 | `S3_ACCESS_KEY` | S3 access key | `minioadmin` or GCS HMAC key |
 | `S3_SECRET_KEY` | S3 secret key | Secret value |

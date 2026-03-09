@@ -16,11 +16,11 @@ describe("Permission + Onboarding integration", () => {
   const roles: Record<string, RolePermission> = {
     pm: {
       agents: ["atlas"],
-      tool_tiers: { db_query: { max_tier: 1 } },
+      tool_tiers: { mcp__postgres__query: { max_tier: 1 } },
     },
     engineering: {
       agents: ["atlas", "sentinel"],
-      tool_tiers: { db_query: { max_tier: 3 }, db_write: { max_tier: 3 } },
+      tool_tiers: { mcp__postgres__query: { max_tier: 3 }, mcp__postgres__execute: { max_tier: 3 } },
     },
   };
 
@@ -45,32 +45,32 @@ describe("Permission + Onboarding integration", () => {
     expect(user.onboardedAt).toBeNull();
 
     // 2. Non-onboarded user can still access shared tools (role/tier gates apply)
-    const allowedBeforeOnboard = permSvc.checkToolAccess(user, "db_query", 1);
+    const allowedBeforeOnboard = permSvc.checkToolAccess(user, "mcp__postgres__query", 1);
     expect(allowedBeforeOnboard.allowed).toBe(true);
 
     // 3. Mark onboarded (for role selection, not access gating)
     const onboarded = await userMgr.markOnboarded(user.id);
 
     // 4. PM can use db_query at tier 1
-    const allowed = permSvc.checkToolAccess(onboarded, "db_query", 1);
+    const allowed = permSvc.checkToolAccess(onboarded, "mcp__postgres__query", 1);
     expect(allowed.allowed).toBe(true);
 
     // 5. PM cannot use db_query at tier 2
-    const denied2 = permSvc.checkToolAccess(onboarded, "db_query", 2);
+    const denied2 = permSvc.checkToolAccess(onboarded, "mcp__postgres__query", 2);
     expect(denied2.allowed).toBe(false);
 
     // 6. Upgrade to engineering
     const upgraded = await userMgr.setRole(user.id, "engineering");
 
     // 7. Engineering can use db_query at tier 3
-    const allowed3 = permSvc.checkToolAccess(upgraded, "db_query", 3);
+    const allowed3 = permSvc.checkToolAccess(upgraded, "mcp__postgres__query", 3);
     expect(allowed3.allowed).toBe(true);
 
     // 8. Add user override to block db_write
     const withOverride = await userMgr.setToolOverrides(user.id, {
-      db_write: { blocked: true },
+      mcp__postgres__execute: { blocked: true },
     });
-    const blocked = permSvc.checkToolAccess(withOverride, "db_write", 1);
+    const blocked = permSvc.checkToolAccess(withOverride, "mcp__postgres__execute", 1);
     expect(blocked.allowed).toBe(false);
   });
 });

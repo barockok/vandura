@@ -2,8 +2,8 @@ roles:
   pm:
     agents: [atlas, scribe]
     tool_tiers:
-      db_query: { max_tier: 3 }
-      db_write: { max_tier: 3 }
+      mcp__postgres__query: { max_tier: 3 }
+      mcp__postgres__execute: { max_tier: 3 }
       upload_file: { max_tier: 1 }
       mcp-confluence: { max_tier: 2 }
       mcp-gdocs: { max_tier: 2 }
@@ -12,8 +12,8 @@ roles:
   engineering:
     agents: [atlas, scribe, courier, sentinel]
     tool_tiers:
-      db_query: { max_tier: 3 }
-      db_write: { max_tier: 3 }
+      mcp__postgres__query: { max_tier: 3 }
+      mcp__postgres__execute: { max_tier: 3 }
       upload_file: { max_tier: 1 }
       mcp-confluence: { max_tier: 2 }
       mcp-gdocs: { max_tier: 2 }
@@ -23,8 +23,8 @@ roles:
   business:
     agents: [atlas, scribe]
     tool_tiers:
-      db_query: { max_tier: 3 }
-      db_write: { max_tier: 3 }
+      mcp__postgres__query: { max_tier: 3 }
+      mcp__postgres__execute: { max_tier: 3 }
       upload_file: { max_tier: 1 }
       mcp-confluence: { max_tier: 1 }
       mcp-gdocs: { max_tier: 2 }

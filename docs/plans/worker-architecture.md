@@ -276,7 +276,6 @@ servers:
     args: ["-y", "@modelcontextprotocol/server-postgres", "${DATABASE_URL}"]
     tools:
       - name: "query"
-        mapped_name: "db_query"
         tier: 1
 ```
 

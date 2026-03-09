@@ -11,14 +11,12 @@ servers:
     tools:
       # Read-only queries - auto-execute (tier 1)
       - name: "query"
-        mapped_name: "db_query"
         tier: 1
         guardrails: |
           Prefer indexed queries. Avoid full table scans on large tables.
           For large result sets (>1000 rows), summarize or use pagination.
       # Write operations - requires checker approval (tier 3)
       - name: "execute"
-        mapped_name: "db_write"
         tier: 3
         guardrails: |
           Show the exact SQL statement and affected table.

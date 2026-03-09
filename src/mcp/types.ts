@@ -10,7 +10,6 @@ export interface McpServerConfig {
 
 export interface McpToolConfig {
   name: string;
-  mapped_name?: string;  // Optional alias for backward compatibility
   tier: 1 | 2 | 3;
   guardrails?: string;
 }
@@ -22,7 +21,6 @@ export interface McpConfig {
 export interface DiscoveredTool {
   serverName: string;
   originalName: string;
-  mappedName: string;
   tier: 1 | 2 | 3;
   guardrails?: string;
   definition: {

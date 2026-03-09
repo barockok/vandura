@@ -8,16 +8,16 @@ const roles: Record<string, RolePermission> = {
   pm: {
     agents: ["atlas", "scribe"],
     tool_tiers: {
-      "db_query": { max_tier: 1 },
-      "db_write": { max_tier: 0 },
+      "mcp__postgres__query": { max_tier: 1 },
+      "mcp__postgres__execute": { max_tier: 0 },
       "confluence_create": { max_tier: 2 },
     },
   },
   engineering: {
     agents: ["atlas", "scribe", "courier", "sentinel"],
     tool_tiers: {
-      "db_query": { max_tier: 3 },
-      "db_write": { max_tier: 3 },
+      "mcp__postgres__query": { max_tier: 3 },
+      "mcp__postgres__execute": { max_tier: 3 },
       "confluence_create": { max_tier: 2 },
     },
   },
@@ -42,26 +42,26 @@ describe("PermissionService", () => {
 
   it("allows tool within role max_tier", () => {
     const user = makeUser({ role: "pm" });
-    const result = svc.checkToolAccess(user, "db_query", 1);
+    const result = svc.checkToolAccess(user, "mcp__postgres__query", 1);
     expect(result.allowed).toBe(true);
   });
 
   it("denies tool exceeding role max_tier", () => {
     const user = makeUser({ role: "pm" });
-    const result = svc.checkToolAccess(user, "db_query", 2);
+    const result = svc.checkToolAccess(user, "mcp__postgres__query", 2);
     expect(result.allowed).toBe(false);
     expect(result.reason).toContain("max tier");
   });
 
   it("denies tool with max_tier 0 (blocked)", () => {
     const user = makeUser({ role: "pm" });
-    const result = svc.checkToolAccess(user, "db_write", 1);
+    const result = svc.checkToolAccess(user, "mcp__postgres__execute", 1);
     expect(result.allowed).toBe(false);
   });
 
   it("allows tool for engineering at higher tier", () => {
     const user = makeUser({ role: "engineering" });
-    const result = svc.checkToolAccess(user, "db_query", 3);
+    const result = svc.checkToolAccess(user, "mcp__postgres__query", 3);
     expect(result.allowed).toBe(true);
   });
 
@@ -80,39 +80,39 @@ describe("PermissionService", () => {
   it("user override elevates max_tier", () => {
     const user = makeUser({
       role: "pm",
-      toolOverrides: { "db_query": { max_tier: 3 } },
+      toolOverrides: { "mcp__postgres__query": { max_tier: 3 } },
     });
-    const result = svc.checkToolAccess(user, "db_query", 3);
+    const result = svc.checkToolAccess(user, "mcp__postgres__query", 3);
     expect(result.allowed).toBe(true);
   });
 
   it("user override blocks a tool", () => {
     const user = makeUser({
       role: "engineering",
-      toolOverrides: { "db_write": { blocked: true } },
+      toolOverrides: { "mcp__postgres__execute": { blocked: true } },
     });
-    const result = svc.checkToolAccess(user, "db_write", 1);
+    const result = svc.checkToolAccess(user, "mcp__postgres__execute", 1);
     expect(result.allowed).toBe(false);
     expect(result.reason).toContain("blocked");
   });
 
   it("denies inactive users", () => {
     const user = makeUser({ isActive: false });
-    const result = svc.checkToolAccess(user, "db_query", 1);
+    const result = svc.checkToolAccess(user, "mcp__postgres__query", 1);
     expect(result.allowed).toBe(false);
     expect(result.reason).toContain("inactive");
   });
 
   it("allows non-onboarded users (shared tools don't require onboarding)", () => {
     const user = makeUser({ onboardedAt: null });
-    const result = svc.checkToolAccess(user, "db_query", 1);
+    const result = svc.checkToolAccess(user, "mcp__postgres__query", 1);
     expect(result.allowed).toBe(true);
   });
 
   it("returns available tools for a role", () => {
     const tools = svc.getAvailableTools("engineering");
-    expect(tools).toContain("db_query");
-    expect(tools).toContain("db_write");
+    expect(tools).toContain("mcp__postgres__query");
+    expect(tools).toContain("mcp__postgres__execute");
   });
 
   it("returns empty for unknown role", () => {

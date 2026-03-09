@@ -5,20 +5,20 @@ roles:
   pm:
     agents: [atlas, scribe]
     tool_tiers:
-      db_query: { max_tier: 1 }
-      db_write: { max_tier: 0 }
+      mcp__postgres__query: { max_tier: 1 }
+      mcp__postgres__execute: { max_tier: 0 }
       confluence_create: { max_tier: 2 }
 
   engineering:
     agents: [atlas, scribe, courier, sentinel]
     tool_tiers:
-      db_query: { max_tier: 3 }
-      db_write: { max_tier: 3 }
+      mcp__postgres__query: { max_tier: 3 }
+      mcp__postgres__execute: { max_tier: 3 }
       confluence_create: { max_tier: 2 }
       rest_api: { max_tier: 3 }
 
   business:
     agents: [atlas, scribe]
     tool_tiers:
-      db_query: { max_tier: 1 }
+      mcp__postgres__query: { max_tier: 1 }
       confluence_create: { max_tier: 1 }

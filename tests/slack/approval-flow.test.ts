@@ -16,7 +16,7 @@ describe("SlackApprovalFlow", () => {
       say: mockSay,
       threadTs: "thread-1",
       approvalId: "apr-1",
-      toolName: "db_query",
+      toolName: "mcp__postgres__query",
       toolInput: { sql: "SELECT * FROM users" },
       tier: 2,
       initiatorSlackId: "U_INIT",
@@ -26,7 +26,7 @@ describe("SlackApprovalFlow", () => {
     expect(mockSay).toHaveBeenCalledTimes(1);
     const call = mockSay.mock.calls[0][0];
     expect(call.thread_ts).toBe("thread-1");
-    expect(call.text).toContain("db_query");
+    expect(call.text).toContain("mcp__postgres__query");
     expect(call.text).toContain("<@U_INIT>");
     expect(call.text).toContain("Tier 2");
   });
@@ -36,7 +36,7 @@ describe("SlackApprovalFlow", () => {
       say: mockSay,
       threadTs: "thread-1",
       approvalId: "apr-1",
-      toolName: "db_write",
+      toolName: "mcp__postgres__execute",
       toolInput: { sql: "DELETE FROM logs" },
       tier: 3,
       initiatorSlackId: "U_INIT",

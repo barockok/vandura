@@ -84,11 +84,10 @@ export async function loadMcpConfig(configPath: string): Promise<LoadedMcpConfig
       throw new Error(`Unsupported MCP transport type: ${serverConfig.type}`);
     }
 
-    // Store tool tier mappings
+    // Store tool tier info
     if (serverConfig.tools) {
       for (const tool of serverConfig.tools) {
-        const mappedName = tool.mapped_name || tool.name;
-        toolTiers.set(mappedName, {
+        toolTiers.set(tool.name, {
           tier: tool.tier,
           serverName,
           originalName: tool.name,

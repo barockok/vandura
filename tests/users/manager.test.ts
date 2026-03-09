@@ -66,12 +66,12 @@ describe("UserManager", () => {
   it("sets tool overrides", async () => {
     const user = await mgr.findOrCreate("U_FRANK", "Frank", "pm");
     const updated = await mgr.setToolOverrides(user.id, {
-      "db_query": { max_tier: 3 },
-      "db_write": { blocked: true },
+      "mcp__postgres__query": { max_tier: 3 },
+      "mcp__postgres__execute": { blocked: true },
     });
     expect(updated.toolOverrides).toEqual({
-      "db_query": { max_tier: 3 },
-      "db_write": { blocked: true },
+      "mcp__postgres__query": { max_tier: 3 },
+      "mcp__postgres__execute": { blocked: true },
     });
   });
 });
