@@ -24,6 +24,31 @@ servers:
           Never allow DROP or TRUNCATE without explicit confirmation.
           Avoid full table updates without WHERE clause.
 
+  # pgmcp MCP Server - alternative PostgreSQL access
+  pgmcp:
+    name: "pgmcp"
+    type: "stdio"
+    command: "npx"
+    args:
+      - "-y"
+      - "subnetmarco/pgmcp"
+      - "${DB_TOOL_CONNECTION_URL}"
+    tools:
+      # Read-only queries - auto-execute (tier 1)
+      - name: "query"
+        tier: 1
+        guardrails: |
+          Prefer indexed queries. Avoid full table scans on large tables.
+          For large result sets (>1000 rows), summarize or use pagination.
+      # Write operations - requires checker approval (tier 3)
+      - name: "execute"
+        tier: 3
+        guardrails: |
+          Show the exact SQL statement and affected table.
+          Estimate how many rows will be affected.
+          Never allow DROP or TRUNCATE without explicit confirmation.
+          Avoid full table updates without WHERE clause.
+
   # Grafana MCP Server - dashboard and metrics access
   grafana:
     name: "Grafana"
