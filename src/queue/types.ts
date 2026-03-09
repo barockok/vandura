@@ -75,7 +75,6 @@ export const defaultJobOptions: JobsOptions = {
  */
 export type SessionStatus =
   | "active"
-  | "awaiting_approval"
   | "completed"
   | "failed";
 
