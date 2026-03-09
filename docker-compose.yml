@@ -72,7 +72,7 @@ services:
       - "3000:3000"
     environment:
       DATABASE_URL: postgres://vandura:vandura@postgres:5432/vandura
-      DB_TOOL_CONNECTION_URL: ${DB_TOOL_CONNECTION_URL:-postgres://vandura:vandura@postgres:5432/vandura}
+      DB_TOOL_CONNECTION_URL: postgres://vandura:vandura@postgres:5432/sampledb
       REDIS_URL: redis://redis:6379
       REDIS_HOST: redis
       REDIS_PORT: "6379"
