@@ -17,7 +17,8 @@
     "test:e2e:slack": "vitest run tests/e2e/slack-flow.test.ts --config vitest.e2e.config.ts",
     "lint": "eslint src/",
     "typecheck": "tsc --noEmit",
-    "db:migrate": "tsx src/db/migrate.ts"
+    "db:migrate": "tsx src/db/migrate.ts",
+    "seed:es": "tsx scripts/seed-elasticsearch.ts"
   },
   "repository": {
     "type": "git",
@@ -48,6 +49,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@elastic/elasticsearch": "^8.17.0",
     "@eslint/js": "^10.0.1",
     "@testcontainers/postgresql": "^11.12.0",
     "@types/node": "^25.3.3",
