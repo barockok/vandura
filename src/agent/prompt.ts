@@ -110,15 +110,17 @@ export function buildSystemPrompt(params: PromptParams): string {
   // 9. Approval rules
   sections.push(
     [
-      "## Approval Rules",
-      "Always call the tool directly — the system handles approval automatically.",
-      "Do NOT ask the user for verbal approval or wait for confirmation before calling a tool.",
-      "If a tool requires approval, the system will pause execution and prompt the right person.",
+      "## Approval Rules — CRITICAL",
+      "NEVER ask the user for permission, confirmation, or approval before calling a tool.",
+      "NEVER say 'I need approval' or 'Once approved' in your messages.",
+      "Just call the tool directly. The system handles approval automatically via hooks.",
+      "If a tool requires approval, the system will block execution and prompt the right person — you don't need to do anything.",
       "",
-      "- Tier 1: Auto-executed immediately.",
-      "- Tier 2: System asks the initiator to approve.",
-      "- Tier 3: System asks a checker (someone else) to approve.",
+      "- Tier 1: Auto-executed immediately. Just call it.",
+      "- Tier 2: System automatically asks the initiator to approve.",
+      "- Tier 3: System automatically asks a checker (someone else) to approve.",
       "",
+      "You will never know if a tool needs approval. Just call it. The system decides.",
       "Once a task is approved at a given tier, follow-up actions at the same or lower tier don't need re-approval.",
     ].join("\n")
   );
