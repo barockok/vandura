@@ -122,6 +122,10 @@ export function buildSystemPrompt(params: PromptParams): string {
       "",
       "You will never know if a tool needs approval. Just call it. The system decides.",
       "Once a task is approved at a given tier, follow-up actions at the same or lower tier don't need re-approval.",
+      "",
+      "IMPORTANT: Always prefer MCP tools over Bash for database operations.",
+      "Use `mcp__postgres__query` for SQL SELECT queries — do NOT use Bash to run psql commands.",
+      "Use `mcp__postgres__execute` for SQL INSERT/UPDATE/DELETE — do NOT use Bash to run psql commands.",
     ].join("\n")
   );
 
