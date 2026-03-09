@@ -51,7 +51,48 @@ services:
       mc mb local/vandura-results --ignore-existing
       "
 
+  vandura:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: build
+    command: npx tsx watch src/index.ts
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    volumes:
+      - ./src:/app/src
+      - ./config:/app/config
+      - sessions:/home/vandura/.claude/sessions
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgres://vandura:vandura@postgres:5432/vandura
+      DB_TOOL_CONNECTION_URL: ${DB_TOOL_CONNECTION_URL:-postgres://vandura:vandura@postgres:5432/vandura}
+      REDIS_URL: redis://redis:6379
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      KMS_PROVIDER: local
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY: vandura
+      S3_SECRET_KEY: vandura123
+      S3_BUCKET: vandura-results
+      S3_REGION: us-east-1
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-4-5-20250929}
+      SLACK_APP_TOKEN: ${SLACK_APP_TOKEN}
+      SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN}
+      SLACK_CHANNEL_ID: ${SLACK_CHANNEL_ID}
+      CLAUDE_SESSIONS_DIR: /home/vandura/.claude/sessions
+      CLAUDE_CODE_PATH: /usr/local/bin/claude
+
 volumes:
   pgdata:
   redisdata:
   miniodata:
+  sessions:
