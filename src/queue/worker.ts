@@ -1,10 +1,10 @@
 import { Worker, Job } from "bullmq";
 import { getRedisOptions, QUEUE_NAME } from "./index.js";
-import type { JobData, JobResult, StartSessionJobData, ContinueSessionJobData, ApproveToolJobData, Session } from "./types.js";
+import type { JobData, JobResult, StartSessionJobData, ContinueSessionJobData, Session } from "./types.js";
 import { createSession, getSession, updateSessionStatus } from "../agent/session.js";
 import { loadMcpConfig } from "../agent/mcp-loader.js";
-import { resolvePendingApproval, getPendingApproval, loadToolPolicies } from "../agent/permissions.js";
-import { runSession, resumeSession, continueSession, type AgentMessage, type ApprovalCallback } from "../agent/sdk-runtime.js";
+import { loadToolPolicies } from "../agent/permissions.js";
+import { runSession, continueSession, type AgentMessage } from "../agent/sdk-runtime.js";
 import { loadAgents } from "../config/loader.js";
 import type { AgentConfig } from "../config/types.js";
 import { markdownToSlack } from "../slack/format.js";
@@ -84,26 +84,6 @@ async function sendToSlack(session: Session, message: AgentMessage): Promise<voi
 }
 
 /**
- * Request approval via Slack
- */
-const requestApproval: ApprovalCallback = async (approval, session) => {
-  if (!slackClient) {
-    console.warn(`[Worker] Slack client not set, cannot request approval`);
-    return;
-  }
-
-  await slackClient.postApprovalRequest(
-    session.channelId,
-    approval.toolName,
-    approval.toolInput,
-    approval.tier,
-    session.threadTs || undefined
-  );
-
-  await updateSessionStatus(session.id, "awaiting_approval");
-};
-
-/**
  * Process a start_session job
  */
 async function processStartSession(job: Job<StartSessionJobData>): Promise<JobResult> {
@@ -138,21 +118,13 @@ async function processStartSession(job: Job<StartSessionJobData>): Promise<JobRe
     message,
     mcpConfig,
     (msg) => sendToSlack(session, msg),
-    requestApproval,
     agentCfg || undefined
   );
-
-  // Update session status based on result
-  if (result.status === "interrupted") {
-    await updateSessionStatus(session.id, "awaiting_approval");
-  }
 
   return {
     success: result.status !== "error",
     sessionId: session.id,
-    message: result.status === "interrupted"
-      ? `Session ${session.id} awaiting approval`
-      : `Session ${session.id} ${result.status}`,
+    message: `Session ${session.id} ${result.status}`,
     error: result.error,
   };
 }
@@ -190,7 +162,6 @@ async function processContinueSession(job: Job<ContinueSessionJobData>): Promise
     message,
     mcpConfig,
     (msg) => sendToSlack(session, msg),
-    requestApproval,
     agentCfg || undefined
   );
 
@@ -198,94 +169,6 @@ async function processContinueSession(job: Job<ContinueSessionJobData>): Promise
     success: result.status !== "error",
     sessionId: session.id,
     message: `Session ${session.id} ${result.status}`,
-    error: result.error,
-  };
-}
-
-/**
- * Process an approve_tool job
- */
-async function processApproveTool(job: Job<ApproveToolJobData>): Promise<JobResult> {
-  const { sessionId, toolUseId, decision, approverId } = job.data;
-
-  console.log(`[Worker] Processing approval for session ${sessionId}, tool ${toolUseId}: ${decision} by ${approverId}`);
-
-  // Get existing session
-  let session = await getSession(sessionId);
-  if (!session) {
-    console.error(`[Worker] Session ${sessionId} not found`);
-    return {
-      success: false,
-      error: `Session ${sessionId} not found`,
-    };
-  }
-
-  // Get pending approval
-  const approval = await getPendingApproval(sessionId);
-  if (!approval) {
-    console.warn(`[Worker] No pending approval found for session ${sessionId}`);
-
-    // Notify user in Slack that no approval is needed
-    if (slackClient) {
-      await slackClient.postMessage(
-        session.channelId,
-        `No pending approval found for this session. All tools have already been executed or approved.`,
-        session.threadTs || undefined
-      );
-    }
-
-    return {
-      success: false,
-      sessionId,
-      error: `No pending approval for session ${sessionId}`,
-    };
-  }
-
-  console.log(`[Worker] Found pending approval: ${approval.id} for tool ${approval.toolName} (tier ${approval.tier})`);
-
-  // Resolve the approval
-  await resolvePendingApproval(sessionId, decision, approverId);
-
-  if (decision === "deny") {
-    // Update session status and notify
-    await updateSessionStatus(sessionId, "active");
-
-    if (slackClient) {
-      await slackClient.postMessage(
-        session.channelId,
-        `Tool "${approval.toolName}" was denied. The agent will try an alternative approach.`,
-        session.threadTs || undefined
-      );
-    }
-
-    return {
-      success: true,
-      sessionId,
-      message: `Tool ${approval.toolName} denied`,
-    };
-  }
-
-  // Update session status
-  await updateSessionStatus(sessionId, "active");
-
-  // Get MCP config and agent config
-  const mcpConfig = await getMcpConfig();
-  const agentCfg = await getAgentConfig();
-
-  // Resume session with approved tool (SDK will resume using session.id)
-  const result = await resumeSession(
-    session,
-    mcpConfig,
-    (msg) => sendToSlack(session, msg),
-    requestApproval,
-    approval.toolName,
-    agentCfg || undefined
-  );
-
-  return {
-    success: result.status !== "error",
-    sessionId,
-    message: `Session resumed, tool ${approval.toolName} approved`,
     error: result.error,
   };
 }
@@ -303,9 +186,6 @@ async function processJob(job: Job<JobData>): Promise<JobResult> {
 
       case "continue_session":
         return await processContinueSession(job as Job<ContinueSessionJobData>);
-
-      case "approve_tool":
-        return await processApproveTool(job as Job<ApproveToolJobData>);
 
       default:
         throw new Error(`Unknown job type: ${job.name}`);

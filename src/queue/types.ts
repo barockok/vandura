@@ -5,8 +5,7 @@ import type { JobsOptions } from "bullmq";
  */
 export type JobName =
   | "start_session"
-  | "continue_session"
-  | "approve_tool";
+  | "continue_session";
 
 /**
  * Base job data shared by all jobs
@@ -36,23 +35,11 @@ export interface ContinueSessionJobData extends BaseJobData {
 }
 
 /**
- * Resume session after tool approval decision
- */
-export interface ApproveToolJobData extends BaseJobData {
-  type: "approve_tool";
-  sessionId: string;
-  toolUseId: string;
-  decision: "allow" | "deny";
-  approverId: string;
-}
-
-/**
  * Union of all job data types
  */
 export type JobData =
   | StartSessionJobData
-  | ContinueSessionJobData
-  | ApproveToolJobData;
+  | ContinueSessionJobData;
 
 /**
  * Job result returned by workers
