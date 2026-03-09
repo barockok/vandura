@@ -152,15 +152,23 @@ export async function createApp() {
         await say({ text: "No active session found for this thread.", thread_ts });
         return;
       }
-      await queue.add("approve_tool", {
-        type: "approve_tool" as const,
+
+      const { resolvePendingApproval, getPendingApproval } = await import("./agent/permissions.js");
+      const pendingApproval = await getPendingApproval(agentSession.id);
+      if (!pendingApproval) {
+        await say({ text: "No pending approval found for this session.", thread_ts });
+        return;
+      }
+
+      await resolvePendingApproval(agentSession.id, "allow", user);
+      await say({ text: `Approved. Resuming...`, thread_ts });
+
+      await queue.add("continue_session", {
+        type: "continue_session" as const,
         timestamp: Date.now(),
         sessionId: agentSession.id,
-        toolUseId: "",
-        decision: "allow" as const,
-        approverId: user,
+        message: `Tool \`${pendingApproval.toolName}\` has been approved. Please proceed with the original request.`,
       });
-      await say({ text: "Processing approval...", thread_ts });
       return;
     }
 
@@ -169,15 +177,23 @@ export async function createApp() {
         await say({ text: "No active session found for this thread.", thread_ts });
         return;
       }
-      await queue.add("approve_tool", {
-        type: "approve_tool" as const,
+
+      const { resolvePendingApproval, getPendingApproval } = await import("./agent/permissions.js");
+      const pendingApproval = await getPendingApproval(agentSession.id);
+      if (!pendingApproval) {
+        await say({ text: "No pending approval found for this session.", thread_ts });
+        return;
+      }
+
+      await resolvePendingApproval(agentSession.id, "deny", user);
+      await say({ text: `Denied. The agent will try an alternative approach.`, thread_ts });
+
+      await queue.add("continue_session", {
+        type: "continue_session" as const,
         timestamp: Date.now(),
         sessionId: agentSession.id,
-        toolUseId: "",
-        decision: "deny" as const,
-        approverId: user,
+        message: `Tool \`${pendingApproval.toolName}\` has been denied. Please use an alternative approach.`,
       });
-      await say({ text: "Processing denial...", thread_ts });
       return;
     }
 
