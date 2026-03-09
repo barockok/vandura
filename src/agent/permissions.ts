@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { parse as parseYaml } from "yaml";
 import { pool } from "../db/pool.js";
-import type { Session, PendingApproval } from "../queue/types.js";
+import type { PendingApproval } from "../queue/types.js";
 
 /**
  * Tool policy from tool-policies.yml
@@ -14,16 +14,6 @@ interface ToolPolicy {
 
 interface ToolPoliciesConfig {
   tool_policies: Record<string, ToolPolicy>;
-}
-
-/**
- * Permission result for SDK canUseTool callback
- */
-export interface SdkPermissionResult {
-  behavior: "allow" | "deny";
-  message?: string;
-  interrupt?: boolean;
-  updatedInput?: Record<string, unknown>;
 }
 
 /**
@@ -245,47 +235,3 @@ export async function resolvePendingApproval(
   );
 }
 
-/**
- * Create the canUseTool callback for SDK query()
- * This handles the permission flow for tool execution
- */
-export function createPermissionCallback(
-  session: Session,
-  onApprovalNeeded: (approval: PendingApproval) => Promise<void>
-): (toolName: string, input: Record<string, unknown>, opts: { toolUseID: string }) => Promise<SdkPermissionResult> {
-  return async (
-    toolName: string,
-    input: Record<string, unknown>,
-    opts: { toolUseID: string }
-  ): Promise<SdkPermissionResult> => {
-    const tier = getToolTier(toolName);
-
-    // Tier 1: Auto-approve
-    if (tier === 1) {
-      console.log(`[Permissions] Auto-approving tier 1 tool: ${toolName}`);
-      return { behavior: "allow" };
-    }
-
-    // Tier 2/3: Request approval
-    console.log(`[Permissions] Requesting approval for tier ${tier} tool: ${toolName}`);
-
-    const approval = await storePendingApproval({
-      sessionId: session.id,
-      toolName,
-      toolInput: input,
-      toolUseId: opts.toolUseID,
-      tier,
-    });
-
-    // Notify via callback (e.g., send Slack message)
-    await onApprovalNeeded(approval);
-
-    // Return deny with interrupt to pause the session
-    // The session will be resumed when approval is received
-    return {
-      behavior: "deny",
-      message: `Approval required for ${toolName} (tier ${tier}). Waiting for ${tier === 2 ? "initiator" : "checker"} approval.`,
-      interrupt: true,
-    };
-  };
-}
