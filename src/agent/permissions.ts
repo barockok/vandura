@@ -184,6 +184,52 @@ export async function getPendingApproval(sessionId: string): Promise<PendingAppr
 }
 
 /**
+ * Get a resolved approval for a session and tool name.
+ * Used by PreToolUse hook to check if a tool was already approved/denied.
+ */
+export async function getResolvedApproval(
+  sessionId: string,
+  toolName: string
+): Promise<PendingApproval | null> {
+  const result = await pool.query<{
+    id: string;
+    session_id: string;
+    tool_name: string;
+    tool_input: Record<string, unknown>;
+    tool_use_id: string;
+    tier: number;
+    requested_at: Date;
+    resolved_at: Date | null;
+    decision: string | null;
+    approver_id: string | null;
+  }>(
+    `SELECT * FROM pending_approvals
+     WHERE session_id = $1 AND tool_name = $2 AND resolved_at IS NOT NULL
+     ORDER BY resolved_at DESC
+     LIMIT 1`,
+    [sessionId, toolName]
+  );
+
+  if (result.rows.length === 0) {
+    return null;
+  }
+
+  const row = result.rows[0];
+  return {
+    id: row.id,
+    sessionId: row.session_id,
+    toolName: row.tool_name,
+    toolInput: row.tool_input,
+    toolUseId: row.tool_use_id,
+    tier: row.tier,
+    requestedAt: row.requested_at,
+    resolvedAt: row.resolved_at,
+    decision: row.decision as "allow" | "deny" | null,
+    approverId: row.approver_id,
+  };
+}
+
+/**
  * Resolve a pending approval
  */
 export async function resolvePendingApproval(
