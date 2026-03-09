@@ -90,6 +90,8 @@ services:
       SLACK_CHANNEL_ID: ${SLACK_CHANNEL_ID}
       CLAUDE_SESSIONS_DIR: /home/vandura/.claude/sessions
       CLAUDE_CODE_PATH: /usr/local/bin/claude
+      GRAFANA_URL: ${GRAFANA_URL}
+      GRAFANA_API_KEY: ${GRAFANA_API_KEY}
 
 volumes:
   pgdata:

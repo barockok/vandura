@@ -9,3 +9,4 @@ acessToken.txt
 *.env
 CLAUDE.md
 .worktrees/
+.mcp.json
