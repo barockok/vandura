@@ -1,4 +1,4 @@
-import { query, type Options, type SDKMessage, type SettingSource } from "@anthropic-ai/claude-agent-sdk";
+import { query, type Options, type PermissionResult, type SDKMessage, type SettingSource } from "@anthropic-ai/claude-agent-sdk";
 import type { BetaTextBlock } from "@anthropic-ai/sdk/resources/beta/messages/messages.js";
 import { env } from "../config/env.js";
 import type { AgentConfig } from "../config/types.js";
@@ -79,10 +79,16 @@ export function createQueryOptions(
     model: env.ANTHROPIC_MODEL,
     pathToClaudeCodeExecutable: env.CLAUDE_CODE_PATH,
     systemPrompt,
-    permissionMode: "acceptEdits",
     hooks: {
       PreToolUse: [{ hooks: [preToolUseHook] }],
       PostToolUse: [{ hooks: [postToolUseHook] }],
+    },
+    // Allow all tools at SDK level — our PreToolUse hook handles maker-checker
+    canUseTool: async (
+      toolName: string,
+      input: Record<string, unknown>,
+    ): Promise<PermissionResult> => {
+      return { behavior: "allow", updatedInput: input };
     },
     // sessionId cannot be used with resume - SDK manages session ID for resumed sessions
     ...(isResuming ? {} : { sessionId: session.id }),
