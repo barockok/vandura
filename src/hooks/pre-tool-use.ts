@@ -16,7 +16,7 @@ export const preToolUseHook: HookCallback = async (input, toolUseId, context) =>
   const preInput = input as PreToolUseHookInput;
   const sessionId = preInput.session_id;
   const toolName = preInput.tool_name;
-  const toolInput = (preInput as unknown as { tool_input: Record<string, unknown> }).tool_input ?? {};
+  const toolInput = (preInput.tool_input as Record<string, unknown>) ?? {};
 
   console.log(`[PreToolUse] Tool: ${toolName}, Session: ${sessionId}`);
 
@@ -34,12 +34,17 @@ export const preToolUseHook: HookCallback = async (input, toolUseId, context) =>
   if (resolved) {
     if (resolved.decision === "allow") {
       console.log(`[PreToolUse] Found approved approval for ${toolName}, allowing`);
-      return {};
+      return { decision: "approve" as const };
     }
     console.log(`[PreToolUse] Found denied approval for ${toolName}, denying`);
     return {
-      permissionDecision: "deny",
+      decision: "block" as const,
       reason: `Tool "${toolName}" was denied by approver.`,
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse" as const,
+        permissionDecision: "deny" as const,
+        permissionDecisionReason: `Tool "${toolName}" was denied by approver.`,
+      },
     };
   }
 
@@ -56,8 +61,15 @@ export const preToolUseHook: HookCallback = async (input, toolUseId, context) =>
 
   await postApprovalToSlack(sessionId, approval);
 
+  const reason = `Awaiting ${tier === 2 ? "initiator" : "checker"} approval for tool "${toolName}". Reply \`approve\` or \`deny\` in the thread to continue.`;
+
   return {
-    permissionDecision: "deny",
-    reason: `Awaiting ${tier === 2 ? "initiator" : "checker"} approval for tool "${toolName}". Reply \`approve\` or \`deny\` in the thread to continue.`,
+    decision: "block" as const,
+    reason,
+    hookSpecificOutput: {
+      hookEventName: "PreToolUse" as const,
+      permissionDecision: "deny" as const,
+      permissionDecisionReason: reason,
+    },
   };
 };

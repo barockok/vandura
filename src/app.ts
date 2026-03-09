@@ -156,7 +156,13 @@ export async function createApp() {
       const { resolvePendingApproval, getPendingApproval } = await import("./agent/permissions.js");
       const pendingApproval = await getPendingApproval(agentSession.id);
       if (!pendingApproval) {
-        await say({ text: "No pending approval found for this session.", thread_ts });
+        // No pending approval in DB — treat as regular continue (model asked via text, not hook)
+        await queue.add("continue_session", {
+          type: "continue_session" as const,
+          timestamp: Date.now(),
+          sessionId: agentSession.id,
+          message: "The user has approved. Please proceed.",
+        });
         return;
       }
 
@@ -181,7 +187,13 @@ export async function createApp() {
       const { resolvePendingApproval, getPendingApproval } = await import("./agent/permissions.js");
       const pendingApproval = await getPendingApproval(agentSession.id);
       if (!pendingApproval) {
-        await say({ text: "No pending approval found for this session.", thread_ts });
+        // No pending approval in DB — treat as regular continue
+        await queue.add("continue_session", {
+          type: "continue_session" as const,
+          timestamp: Date.now(),
+          sessionId: agentSession.id,
+          message: "The user has denied the request. Please use an alternative approach.",
+        });
         return;
       }
 

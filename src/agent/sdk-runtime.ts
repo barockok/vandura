@@ -5,6 +5,8 @@ import type { AgentConfig } from "../config/types.js";
 import type { Session } from "../queue/types.js";
 import type { LoadedMcpConfig } from "./mcp-loader.js";
 import { buildSystemPrompt } from "./prompt.js";
+import { preToolUseHook } from "../hooks/pre-tool-use.js";
+import { postToolUseHook } from "../hooks/post-tool-use.js";
 
 /**
  * Message types for streaming to Slack
@@ -77,7 +79,10 @@ export function createQueryOptions(
     model: env.ANTHROPIC_MODEL,
     pathToClaudeCodeExecutable: env.CLAUDE_CODE_PATH,
     systemPrompt,
-    settingSources: ["local"] as SettingSource[], // Load hooks for audit logging
+    hooks: {
+      PreToolUse: [{ hooks: [preToolUseHook] }],
+      PostToolUse: [{ hooks: [postToolUseHook] }],
+    },
     // sessionId cannot be used with resume - SDK manages session ID for resumed sessions
     ...(isResuming ? {} : { sessionId: session.id }),
     env: {
