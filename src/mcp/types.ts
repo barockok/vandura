@@ -11,15 +11,3 @@ export interface McpServerConfig {
 export interface McpConfig {
   servers: Record<string, McpServerConfig>;
 }
-
-export interface DiscoveredTool {
-  serverName: string;
-  originalName: string;
-  tier: 1 | 2 | 3;
-  guardrails?: string;
-  definition: {
-    name: string;
-    description: string;
-    input_schema: Record<string, unknown>;
-  };
-}

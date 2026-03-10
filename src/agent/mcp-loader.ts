@@ -67,6 +67,10 @@ export async function loadMcpConfig(configPath: string): Promise<LoadedMcpConfig
           ...process.env as Record<string, string>,
           // Override with specific database URL
           DATABASE_URL: env.DB_TOOL_CONNECTION_URL || env.DATABASE_URL,
+          // Merge server-specific env vars (with ${VAR} substitution)
+          ...Object.fromEntries(
+            Object.entries(serverConfig.env ?? {}).map(([k, v]) => [k, substituteEnvVars(v)])
+          ),
         },
       };
     } else if (serverConfig.type === "sse") {
@@ -81,7 +85,6 @@ export async function loadMcpConfig(configPath: string): Promise<LoadedMcpConfig
     } else {
       throw new Error(`Unsupported MCP transport type: ${serverConfig.type}`);
     }
-
   }
 
   return { servers };
