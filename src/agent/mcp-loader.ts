@@ -25,6 +25,9 @@ export type SdkMcpServerConfig = SdkMcpStdioConfig | SdkMcpSSEConfig;
  */
 export interface LoadedMcpConfig {
   servers: Record<string, SdkMcpServerConfig>;
+  /** Server-specific env vars resolved from YAML ${VAR} references.
+   *  Must be passed to the SDK's env option so MCP servers inherit them. */
+  resolvedEnv: Record<string, string>;
 }
 
 /**
@@ -56,20 +59,21 @@ export async function loadMcpConfig(configPath: string): Promise<LoadedMcpConfig
 
       const processedArgs = serverConfig.args?.map(substituteEnvVars);
 
+      // Only pass server-specific env vars — do NOT dump process.env here.
+      // Claude Code merges config env with its process env, but npm lifecycle
+      // vars (npm_config_*, npm_lifecycle_*) in a full dump break npx startup.
+      const serverEnv: Record<string, string> = {
+        DATABASE_URL: process.env.DB_TOOL_CONNECTION_URL || process.env.DATABASE_URL || "",
+        ...Object.fromEntries(
+          Object.entries(serverConfig.env ?? {}).map(([k, v]) => [k, substituteEnvVars(v)])
+        ),
+      };
+
       servers[serverName] = {
         type: "stdio",
         command: serverConfig.command,
         args: processedArgs,
-        env: {
-          // Include full environment so MCP server can find commands like npx
-          ...process.env as Record<string, string>,
-          // Override with specific database URL
-          DATABASE_URL: process.env.DB_TOOL_CONNECTION_URL || process.env.DATABASE_URL || "",
-          // Merge server-specific env vars (with ${VAR} substitution)
-          ...Object.fromEntries(
-            Object.entries(serverConfig.env ?? {}).map(([k, v]) => [k, substituteEnvVars(v)])
-          ),
-        },
+        env: serverEnv,
       };
     } else if (serverConfig.type === "sse") {
       if (!serverConfig.endpoint) {
@@ -85,5 +89,18 @@ export async function loadMcpConfig(configPath: string): Promise<LoadedMcpConfig
     }
   }
 
-  return { servers };
+  // Collect server-specific env vars that need to be in the parent process.
+  // These get resolved here and must be passed via the SDK's env option.
+  const resolvedEnv: Record<string, string> = {
+    DATABASE_URL: process.env.DB_TOOL_CONNECTION_URL || process.env.DATABASE_URL || "",
+  };
+  for (const serverConfig of Object.values(config.servers)) {
+    if (serverConfig.env) {
+      for (const [k, v] of Object.entries(serverConfig.env)) {
+        resolvedEnv[k] = substituteEnvVars(v);
+      }
+    }
+  }
+
+  return { servers, resolvedEnv };
 }

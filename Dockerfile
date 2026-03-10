@@ -1,6 +1,10 @@
 FROM node:22-alpine AS build
 WORKDIR /app
 RUN npm install -g @anthropic-ai/claude-code
+# Pre-cache MCP server packages so npx doesn't need to download them at runtime
+# (Claude Code has a short MCP startup timeout that npx downloads can exceed)
+RUN npx -y @modelcontextprotocol/server-postgres --help 2>/dev/null || true && \
+    npx -y @leval/mcp-grafana --help 2>/dev/null || true
 COPY package*.json ./
 RUN npm ci
 COPY . .
