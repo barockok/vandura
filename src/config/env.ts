@@ -21,4 +21,6 @@ export const env = {
   SLACK_APP_TOKEN: process.env.SLACK_APP_TOKEN ?? "",
   SLACK_BOT_TOKEN: process.env.SLACK_BOT_TOKEN ?? "",
   SLACK_CHANNEL_ID: process.env.SLACK_CHANNEL_ID ?? "",
+  GRAFANA_URL: process.env.GRAFANA_URL ?? "",
+  GRAFANA_API_KEY: process.env.GRAFANA_API_KEY ?? "",
 } as const;
