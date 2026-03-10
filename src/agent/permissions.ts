@@ -87,6 +87,23 @@ export function getToolTier(toolName: string): 1 | 2 | 3 {
 }
 
 /**
+ * Get all guardrails from loaded tool policies
+ */
+export function getAllGuardrails(): Record<string, string> {
+  if (!toolPolicies) {
+    throw new Error("Tool policies not loaded. Call loadToolPolicies() first.");
+  }
+
+  const guardrails: Record<string, string> = {};
+  for (const [toolName, policy] of toolPolicies.entries()) {
+    if (policy.guardrails) {
+      guardrails[toolName] = policy.guardrails;
+    }
+  }
+  return guardrails;
+}
+
+/**
  * Store a pending approval request in the database
  */
 export async function storePendingApproval(params: {

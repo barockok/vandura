@@ -5,13 +5,7 @@ export interface McpServerConfig {
   args?: string[];
   endpoint?: string;
   auth?: "none" | "oauth" | "api-key";
-  tools?: McpToolConfig[];
-}
-
-export interface McpToolConfig {
-  name: string;
-  tier: 1 | 2 | 3;
-  guardrails?: string;
+  env?: Record<string, string>;
 }
 
 export interface McpConfig {

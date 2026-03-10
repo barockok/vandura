@@ -4,6 +4,7 @@ import { env } from "../config/env.js";
 import type { AgentConfig } from "../config/types.js";
 import type { Session } from "../queue/types.js";
 import type { LoadedMcpConfig } from "./mcp-loader.js";
+import { getAllGuardrails } from "./permissions.js";
 import { buildSystemPrompt } from "./prompt.js";
 import { preToolUseHook } from "../hooks/pre-tool-use.js";
 import { postToolUseHook } from "../hooks/post-tool-use.js";
@@ -46,13 +47,8 @@ export function createQueryOptions(
   // Build system prompt with guardrails
   let systemPrompt: string | undefined;
   if (agentConfig) {
-    // Build guardrails from MCP config tool tiers
-    const guardrails: Record<string, string> = {};
-    for (const [toolName, info] of mcpConfig.toolTiers.entries()) {
-      if (info.guardrails) {
-        guardrails[toolName] = info.guardrails;
-      }
-    }
+    // Build guardrails from tool-policies.yml (single source of truth)
+    const guardrails = getAllGuardrails();
 
     systemPrompt = buildSystemPrompt({
       agentName: agentConfig.name,

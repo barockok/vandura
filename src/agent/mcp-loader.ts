@@ -22,11 +22,10 @@ export interface SdkMcpSSEConfig {
 export type SdkMcpServerConfig = SdkMcpStdioConfig | SdkMcpSSEConfig;
 
 /**
- * Loaded MCP configuration with tool tier mappings
+ * Loaded MCP configuration
  */
 export interface LoadedMcpConfig {
   servers: Record<string, SdkMcpServerConfig>;
-  toolTiers: Map<string, { tier: 1 | 2 | 3; serverName: string; originalName: string; guardrails?: string }>;
 }
 
 /**
@@ -49,7 +48,6 @@ export async function loadMcpConfig(configPath: string): Promise<LoadedMcpConfig
   const config = parseYaml(content) as McpConfig;
 
   const servers: Record<string, SdkMcpServerConfig> = {};
-  const toolTiers = new Map<string, { tier: 1 | 2 | 3; serverName: string; originalName: string; guardrails?: string }>();
 
   for (const [serverName, serverConfig] of Object.entries(config.servers)) {
     // Convert to SDK format
@@ -84,39 +82,7 @@ export async function loadMcpConfig(configPath: string): Promise<LoadedMcpConfig
       throw new Error(`Unsupported MCP transport type: ${serverConfig.type}`);
     }
 
-    // Store tool tier info
-    if (serverConfig.tools) {
-      for (const tool of serverConfig.tools) {
-        toolTiers.set(tool.name, {
-          tier: tool.tier,
-          serverName,
-          originalName: tool.name,
-          guardrails: tool.guardrails,
-        });
-      }
-    }
   }
 
-  return { servers, toolTiers };
-}
-
-/**
- * Get tool tier by mapped name
- */
-export function getToolTier(
-  toolTiers: Map<string, { tier: 1 | 2 | 3; serverName: string; originalName: string; guardrails?: string }>,
-  toolName: string
-): 1 | 2 | 3 {
-  const tool = toolTiers.get(toolName);
-  return tool?.tier ?? 1; // Default to tier 1 (auto-approve) if not configured
-}
-
-/**
- * Get tool info by mapped name
- */
-export function getToolInfo(
-  toolTiers: Map<string, { tier: 1 | 2 | 3; serverName: string; originalName: string; guardrails?: string }>,
-  toolName: string
-): { tier: 1 | 2 | 3; serverName: string; originalName: string; guardrails?: string } | undefined {
-  return toolTiers.get(toolName);
+  return { servers };
 }
