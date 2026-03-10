@@ -76,6 +76,7 @@ export function createQueryOptions(
       personality: agentConfig.personality,
       systemPromptExtra: agentConfig.system_prompt_extra,
       guardrails,
+      memoryDir: env.VANDURA_MEMORY_DIR,
     });
   }
 

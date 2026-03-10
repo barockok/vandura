@@ -9,6 +9,6 @@ describe("app smoke test", () => {
       guardrails: {},
     });
     expect(prompt).toContain("Sentinel");
-    expect(prompt).toContain("Vandura");
+    expect(prompt).toContain("AI assistant built for this team");
   });
 });
