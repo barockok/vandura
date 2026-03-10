@@ -111,6 +111,12 @@ export function createQueryOptions(
     },
     // sessionId cannot be used with resume - SDK manages session ID for resumed sessions
     ...(isResuming ? {} : { sessionId: session.id }),
+    stderr: (data: string) => {
+      // Log MCP and error-related stderr for debugging
+      if (data.includes("MCP") || data.includes("ERROR") || data.includes("mcp")) {
+        console.error(`[Claude stderr] ${data.trimEnd()}`);
+      }
+    },
     env: {
       // Include full environment so Claude Code can find commands like npx
       ...claudeEnv,
@@ -118,6 +124,7 @@ export function createQueryOptions(
       ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY,
       ...(env.ANTHROPIC_BASE_URL ? { ANTHROPIC_BASE_URL: env.ANTHROPIC_BASE_URL } : {}),
       CLAUDE_AGENT_SDK_CLIENT_APP: "vandura/1.0.0",
+      DEBUG_CLAUDE_AGENT_SDK: "1",
     },
   };
 

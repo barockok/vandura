@@ -87,23 +87,13 @@ export function buildSystemPrompt(params: PromptParams): string {
     sections.push(`## Guardrails\n${guardrailLines}`);
   }
 
-  // 8. Connection types
+  // 8. Tool usage guidance
   sections.push(
     [
-      "## Connection Types",
-      "Tools use two types of connections:",
-      "",
-      "**Shared connections** (database, Grafana, Elastic, GCS):",
-      "- These use a service account managed by the team",
-      "- Be conservative: prefer smaller scopes, limit result sets",
-      "- Avoid full table scans on large tables",
-      "- For large results, upload to GCS instead of inline display",
-      "- Watch token usage — shared budget",
-      "",
-      "**Per-user connections** (Confluence, Google Docs, Jira):",
-      "- These use OAuth tokens from individual users",
-      "- Actions are scoped to what that user can access",
-      "- Tokens may expire; you'll get an error if refresh fails",
+      "## Tool Usage",
+      "Use the MCP tools available to you (listed in your tool definitions).",
+      "Be conservative with shared resources: prefer smaller scopes, limit result sets.",
+      "For large results, upload as a file instead of inline display.",
     ].join("\n")
   );
 

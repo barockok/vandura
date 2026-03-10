@@ -16,14 +16,6 @@ tool_policies:
       Never allow DROP or TRUNCATE without explicit confirmation.
       Avoid full table updates without WHERE clause.
 
-  mcp__gcs__upload:
-    tier: 1
-    connection_type: shared
-
-  mcp__gcs__list:
-    tier: 1
-    connection_type: shared
-
   upload_file:
     tier: 1
     connection_type: shared
@@ -31,50 +23,7 @@ tool_policies:
       Upload only when user explicitly requests a file export (CSV, JSON, etc.).
       Use appropriate MIME type for the content format.
 
-  mcp__elastic__search:
-    tier: 1
-    connection_type: shared
-    guardrails: |
-      Use specific search queries. Avoid match_all on large indices.
-      Limit result set size with 'size' parameter.
-
-  # Per-user connections (OAuth, user-scoped)
-  mcp__confluence__create_page:
-    tier: 2
-    connection_type: per-user
-    guardrails: |
-      Confirm the target space and page title with the initiator.
-      Show a preview of the content before creating.
-
-  mcp__confluence__get_page:
-    tier: 1
-    connection_type: per-user
-
-  mcp__gdocs__create_document:
-    tier: 2
-    connection_type: per-user
-    guardrails: |
-      Confirm the document title and content structure before creating.
-
-  mcp__gdocs__get_document:
-    tier: 1
-    connection_type: per-user
-
-  mcp__jira__create_issue:
-    tier: 2
-    connection_type: per-user
-    guardrails: |
-      Confirm the project, issue type, and summary before creating.
-
-  mcp__jira__search:
-    tier: 1
-    connection_type: per-user
-
-  # Default for unknown tools
+  # Default for unknown tools (includes all Grafana MCP tools, etc.)
   _default:
     tier: 1
     connection_type: shared
-    guardrails: |
-      Describe what this tool will do and what parameters you are passing.
-      Ask the initiator to confirm before proceeding.
-      For shared resources: be conservative, limit result sets, avoid expensive operations.
