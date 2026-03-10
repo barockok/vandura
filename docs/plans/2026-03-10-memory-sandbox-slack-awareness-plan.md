@@ -2,168 +2,95 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Add a persistent memory MCP server, fix session persistence for multi-node, and update the system prompt for Slack awareness and white-label identity.
+**Goal:** Add persistent memory (internal tool via PreToolUse hook), fix session persistence for multi-node, and update the system prompt for Slack awareness and white-label identity.
 
-**Architecture:** A new stdio MCP server (`memory-server.ts`) using `@modelcontextprotocol/sdk` exposes `save_memory`/`recall_memory` tools backed by markdown files. The system prompt gets three new sections: memory guidance, Slack thread awareness, and white-label identity. Session persistence is fixed to always-on.
+**Architecture:** The agent uses Claude Code's built-in Read/Write/Glob tools for memory files. A PreToolUse hook intercepts writes to the memory directory and scans for sensitive data. System prompt gets three new sections: memory guidance, Slack thread awareness, and white-label identity. Session persistence is fixed to always-on.
 
-**Tech Stack:** TypeScript, `@modelcontextprotocol/sdk` (already in deps), Vitest
+**Tech Stack:** TypeScript, Vitest
 
 ---
 
-### Task 1: Memory MCP Server — Core Implementation
+### Task 1: Memory Sensitive Data Guard — Core Module + Tests
 
 **Files:**
-- Create: `src/mcp-servers/memory-server.ts`
-- Test: `tests/mcp-servers/memory-server.test.ts`
+- Create: `src/tools/memory.ts`
+- Test: `tests/tools/memory.test.ts`
 
 **Step 1: Write the failing tests**
 
-Create `tests/mcp-servers/memory-server.test.ts`:
+Create `tests/tools/memory.test.ts`:
 
 ```typescript
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, rm, readFile, writeFile, mkdir } from "node:fs/promises";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
-import {
-  saveMemory,
-  recallMemory,
-  containsSensitiveData,
-} from "../../src/mcp-servers/memory-server.js";
+import { describe, it, expect } from "vitest";
+import { containsSensitiveData } from "../../src/tools/memory.js";
 
-describe("memory-server", () => {
-  let memoryDir: string;
-
-  beforeEach(async () => {
-    memoryDir = await mkdtemp(join(tmpdir(), "vandura-memory-"));
+describe("containsSensitiveData", () => {
+  it("detects sk- prefixed keys", () => {
+    expect(containsSensitiveData("key is sk-ant-abc123def456")).toBe(true);
   });
 
-  afterEach(async () => {
-    await rm(memoryDir, { recursive: true, force: true });
+  it("detects sk_ prefixed keys", () => {
+    expect(containsSensitiveData("key is sk_live_abc123def456")).toBe(true);
   });
 
-  describe("saveMemory", () => {
-    it("creates a new topic file", async () => {
-      const result = await saveMemory(memoryDir, "grafana-queries", "Use rate() for request latency.");
-      expect(result).toContain("Saved to grafana-queries");
-      const content = await readFile(join(memoryDir, "grafana-queries.md"), "utf-8");
-      expect(content).toContain("Use rate() for request latency.");
-    });
-
-    it("appends to an existing topic file", async () => {
-      await writeFile(join(memoryDir, "tips.md"), "# tips\n\nFirst tip.\n");
-      await saveMemory(memoryDir, "tips", "Second tip.");
-      const content = await readFile(join(memoryDir, "tips.md"), "utf-8");
-      expect(content).toContain("First tip.");
-      expect(content).toContain("Second tip.");
-    });
-
-    it("rejects content with API keys", async () => {
-      await expect(
-        saveMemory(memoryDir, "secrets", "The key is sk-ant-abc123def456")
-      ).rejects.toThrow(/sensitive data/i);
-    });
-
-    it("rejects content with Slack tokens", async () => {
-      await expect(
-        saveMemory(memoryDir, "tokens", "Token: xoxb-123-456-abc")
-      ).rejects.toThrow(/sensitive data/i);
-    });
-
-    it("rejects content with Bearer tokens", async () => {
-      await expect(
-        saveMemory(memoryDir, "auth", "Authorization: Bearer eyJhbGciOiJI...")
-      ).rejects.toThrow(/sensitive data/i);
-    });
-
-    it("rejects content with Grafana service account tokens", async () => {
-      await expect(
-        saveMemory(memoryDir, "grafana", "Use glsa_aDoDCdIKfpPqdA5jki3H to auth")
-      ).rejects.toThrow(/sensitive data/i);
-    });
+  it("detects xox tokens", () => {
+    expect(containsSensitiveData("token xoxb-123-456-abc")).toBe(true);
   });
 
-  describe("recallMemory", () => {
-    it("reads a specific topic file", async () => {
-      await writeFile(join(memoryDir, "krakend.md"), "# krakend\n\nCheck p99 latency.\n");
-      const result = await recallMemory(memoryDir, "krakend");
-      expect(result).toContain("Check p99 latency.");
-    });
-
-    it("returns error for non-existent topic", async () => {
-      const result = await recallMemory(memoryDir, "nonexistent");
-      expect(result).toContain("not found");
-    });
-
-    it("lists all topics when no topic given", async () => {
-      await writeFile(join(memoryDir, "topic-a.md"), "a");
-      await writeFile(join(memoryDir, "topic-b.md"), "b");
-      const result = await recallMemory(memoryDir);
-      expect(result).toContain("topic-a");
-      expect(result).toContain("topic-b");
-    });
-
-    it("returns empty message when no topics exist", async () => {
-      const result = await recallMemory(memoryDir);
-      expect(result).toContain("No memories");
-    });
+  it("detects glsa_ tokens", () => {
+    expect(containsSensitiveData("use glsa_abc123 for grafana")).toBe(true);
   });
 
-  describe("containsSensitiveData", () => {
-    it("detects sk- prefixed keys", () => {
-      expect(containsSensitiveData("key is sk-ant-abc123")).toBe(true);
-    });
+  it("detects Bearer tokens", () => {
+    expect(containsSensitiveData("Authorization: Bearer eyJhbGciOiJIUzI1NiJ9")).toBe(true);
+  });
 
-    it("detects xox tokens", () => {
-      expect(containsSensitiveData("token xoxb-123-456")).toBe(true);
-    });
+  it("detects password= patterns", () => {
+    expect(containsSensitiveData("password=hunter2")).toBe(true);
+  });
 
-    it("detects glsa_ tokens", () => {
-      expect(containsSensitiveData("use glsa_abc123 for grafana")).toBe(true);
-    });
+  it("detects secret= patterns", () => {
+    expect(containsSensitiveData("secret=abc123xyz")).toBe(true);
+  });
 
-    it("detects Bearer tokens", () => {
-      expect(containsSensitiveData("Bearer eyJhbGciOi")).toBe(true);
-    });
+  it("detects PEM private keys", () => {
+    expect(containsSensitiveData("-----BEGIN PRIVATE KEY-----")).toBe(true);
+    expect(containsSensitiveData("-----BEGIN RSA PRIVATE KEY-----")).toBe(true);
+  });
 
-    it("detects password= patterns", () => {
-      expect(containsSensitiveData("password=hunter2")).toBe(true);
-    });
+  it("allows safe content", () => {
+    expect(containsSensitiveData("Use rate(http_requests_total[5m]) for latency")).toBe(false);
+  });
 
-    it("allows safe content", () => {
-      expect(containsSensitiveData("Use rate(http_requests_total[5m]) for latency")).toBe(false);
-    });
+  it("allows the word 'token' in normal context", () => {
+    expect(containsSensitiveData("The GRAFANA_API_KEY config variable name")).toBe(false);
+  });
 
-    it("allows the word 'token' in normal context", () => {
-      expect(containsSensitiveData("The GRAFANA_API_KEY config variable")).toBe(false);
-    });
+  it("allows discussion of passwords without actual values", () => {
+    expect(containsSensitiveData("The user needs to reset their password")).toBe(false);
   });
 });
 ```
 
 **Step 2: Run tests to verify they fail**
 
-Run: `npm test -- tests/mcp-servers/memory-server.test.ts`
+Run: `npm test -- tests/tools/memory.test.ts`
 Expected: FAIL — module not found
 
-**Step 3: Write the memory server implementation**
+**Step 3: Write the implementation**
 
-Create `src/mcp-servers/memory-server.ts`:
+Create `src/tools/memory.ts`:
 
 ```typescript
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import {
-  CallToolRequestSchema,
-  ListToolsRequestSchema,
-} from "@modelcontextprotocol/sdk/types.js";
-import { readFile, writeFile, readdir, stat, mkdir } from "node:fs/promises";
-import { join } from "node:path";
-
-const MEMORY_DIR = process.env.VANDURA_MEMORY_DIR || join(process.env.HOME || "/root", ".vandura", "memory");
+/**
+ * Memory utilities — sensitive data detection for the PreToolUse hook.
+ *
+ * The agent uses Claude Code's built-in Read/Write/Glob tools for memory files.
+ * This module provides the guard that prevents secrets from being persisted.
+ */
 
 /**
- * Sensitive data patterns — reject saves containing these
+ * Patterns matching sensitive data that must not be saved to memory.
  */
 const SENSITIVE_PATTERNS = [
   /sk-[a-zA-Z0-9_-]{10,}/,          // Anthropic/OpenAI API keys
@@ -177,246 +104,168 @@ const SENSITIVE_PATTERNS = [
 ];
 
 /**
- * Check if content contains sensitive data
+ * Check if content contains sensitive data (API keys, tokens, passwords).
  */
 export function containsSensitiveData(content: string): boolean {
   return SENSITIVE_PATTERNS.some((pattern) => pattern.test(content));
-}
-
-/**
- * Save content to a topic file
- */
-export async function saveMemory(memoryDir: string, topic: string, content: string): Promise<string> {
-  if (containsSensitiveData(content)) {
-    throw new Error(
-      "Content appears to contain sensitive data (API keys, tokens, passwords). Please redact before saving."
-    );
-  }
-
-  // Sanitize topic name for filesystem
-  const safeTopic = topic.replace(/[^a-zA-Z0-9_-]/g, "-").toLowerCase();
-  const filePath = join(memoryDir, `${safeTopic}.md`);
-
-  await mkdir(memoryDir, { recursive: true });
-
-  const timestamp = new Date().toISOString();
-  let existingContent = "";
-  try {
-    existingContent = await readFile(filePath, "utf-8");
-  } catch {
-    // File doesn't exist — will create new
-  }
-
-  const separator = existingContent ? `\n\n---\n_Updated: ${timestamp}_\n\n` : `# ${safeTopic}\n\n_Created: ${timestamp}_\n\n`;
-  const newContent = existingContent + separator + content + "\n";
-
-  await writeFile(filePath, newContent, "utf-8");
-  return `Saved to ${safeTopic}`;
-}
-
-/**
- * Recall memory by topic, or list all topics
- */
-export async function recallMemory(memoryDir: string, topic?: string): Promise<string> {
-  await mkdir(memoryDir, { recursive: true });
-
-  if (topic) {
-    const safeTopic = topic.replace(/[^a-zA-Z0-9_-]/g, "-").toLowerCase();
-    const filePath = join(memoryDir, `${safeTopic}.md`);
-    try {
-      return await readFile(filePath, "utf-8");
-    } catch {
-      return `Topic "${topic}" not found. Use recall_memory without a topic to list available topics.`;
-    }
-  }
-
-  // List all topics
-  try {
-    const files = await readdir(memoryDir);
-    const mdFiles = files.filter((f) => f.endsWith(".md"));
-
-    if (mdFiles.length === 0) {
-      return "No memories saved yet.";
-    }
-
-    const topics: string[] = [];
-    for (const file of mdFiles) {
-      const filePath = join(memoryDir, file);
-      const fileStat = await stat(filePath);
-      const topicName = file.replace(/\.md$/, "");
-      topics.push(`- **${topicName}** (updated: ${fileStat.mtime.toISOString().split("T")[0]})`);
-    }
-
-    return `## Saved Topics\n\n${topics.join("\n")}`;
-  } catch {
-    return "No memories saved yet.";
-  }
-}
-
-/**
- * Start the MCP server (stdio transport)
- */
-async function main() {
-  const server = new Server(
-    { name: "vandura-memory", version: "1.0.0" },
-    { capabilities: { tools: {} } }
-  );
-
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: [
-      {
-        name: "save_memory",
-        description:
-          "Save knowledge to persistent memory. Use this when the user asks you to remember something, or when you've solved a problem worth remembering for future sessions. Organize by topic.",
-        inputSchema: {
-          type: "object" as const,
-          properties: {
-            topic: {
-              type: "string",
-              description: "Topic name (e.g., 'grafana-queries', 'krakend-troubleshooting'). Used as filename.",
-            },
-            content: {
-              type: "string",
-              description: "The knowledge to save. MUST NOT contain API keys, tokens, passwords, or other secrets.",
-            },
-          },
-          required: ["topic", "content"],
-        },
-      },
-      {
-        name: "recall_memory",
-        description:
-          "Recall knowledge from persistent memory. Call without a topic to list all saved topics. Call with a topic to read its contents.",
-        inputSchema: {
-          type: "object" as const,
-          properties: {
-            topic: {
-              type: "string",
-              description: "Topic name to recall. Omit to list all available topics.",
-            },
-          },
-        },
-      },
-    ],
-  }));
-
-  server.setRequestHandler(CallToolRequestSchema, async (request) => {
-    const { name, arguments: args } = request.params;
-
-    switch (name) {
-      case "save_memory": {
-        const { topic, content } = args as { topic: string; content: string };
-        try {
-          const result = await saveMemory(MEMORY_DIR, topic, content);
-          return { content: [{ type: "text", text: result }] };
-        } catch (error) {
-          return {
-            content: [{ type: "text", text: (error as Error).message }],
-            isError: true,
-          };
-        }
-      }
-
-      case "recall_memory": {
-        const { topic } = (args || {}) as { topic?: string };
-        const result = await recallMemory(MEMORY_DIR, topic);
-        return { content: [{ type: "text", text: result }] };
-      }
-
-      default:
-        return {
-          content: [{ type: "text", text: `Unknown tool: ${name}` }],
-          isError: true,
-        };
-    }
-  });
-
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
-}
-
-// Only start server when run directly (not when imported for tests)
-const isDirectRun = process.argv[1]?.endsWith("memory-server.js") || process.argv[1]?.endsWith("memory-server.ts");
-if (isDirectRun) {
-  main().catch(console.error);
 }
 ```
 
 **Step 4: Run tests to verify they pass**
 
-Run: `npm test -- tests/mcp-servers/memory-server.test.ts`
+Run: `npm test -- tests/tools/memory.test.ts`
 Expected: ALL PASS
 
 **Step 5: Commit**
 
 ```bash
-git add src/mcp-servers/memory-server.ts tests/mcp-servers/memory-server.test.ts
-git commit -m "feat: add memory MCP server with save/recall tools and sensitive data guard"
+git add src/tools/memory.ts tests/tools/memory.test.ts
+git commit -m "feat: add sensitive data detection for memory writes"
 ```
 
 ---
 
-### Task 2: Register Memory MCP Server in Config
+### Task 2: PreToolUse Hook — Memory Write Guard
 
 **Files:**
-- Modify: `config/mcp-servers.yml`
-- Modify: `.env.example:38-39`
+- Modify: `src/hooks/pre-tool-use.ts`
+- Modify: `src/config/env.ts` (add `VANDURA_MEMORY_DIR`)
+- Modify: `.env.example` (add `VANDURA_MEMORY_DIR`)
 - Modify: `docker-compose.yml` (add `VANDURA_MEMORY_DIR` env var)
+- Test: `tests/hooks/pre-tool-use.test.ts` (add memory guard tests)
 
-**Step 1: Add memory server to mcp-servers.yml**
+**Step 1: Add VANDURA_MEMORY_DIR to env config**
 
-Add to the end of `config/mcp-servers.yml`:
+In `src/config/env.ts`, add:
 
-```yaml
-
-  # Vandura Memory - persistent knowledge across sessions
-  memory:
-    name: "Memory"
-    type: "stdio"
-    command: "node"
-    args:
-      - "dist/mcp-servers/memory-server.js"
-    env:
-      VANDURA_MEMORY_DIR: "${VANDURA_MEMORY_DIR}"
+```typescript
+VANDURA_MEMORY_DIR: process.env.VANDURA_MEMORY_DIR || join(process.env.HOME || "/root", ".vandura", "memory"),
 ```
 
-**Step 2: Add env var to .env.example**
+Import `join` from `node:path` if not already imported.
 
-Add to the end of `.env.example`:
+In `.env.example`, add:
 
 ```
 # Vandura Memory (persistent knowledge store)
 VANDURA_MEMORY_DIR=/home/vandura/.vandura/memory
 ```
 
-**Step 3: Add env var to docker-compose.yml**
-
-In the `vandura` service `environment` section, add:
+In `docker-compose.yml`, add to the vandura service environment:
 
 ```yaml
       VANDURA_MEMORY_DIR: /home/vandura/.vandura/memory
 ```
 
-**Step 4: Add build step for memory server**
+**Step 2: Write failing test for the memory guard**
 
-The memory server needs to be compiled to JS since we reference `dist/mcp-servers/memory-server.js`. Check that the existing `tsconfig.json` includes `src/mcp-servers/`. If not, the default `src/**/*` glob should cover it.
+Add to the PreToolUse hook tests (create if needed):
 
-Alternatively, if the Docker container runs via `npx tsx` (live TS execution), change the command in `mcp-servers.yml` to:
+```typescript
+import { describe, it, expect } from "vitest";
+import { isMemoryWrite, shouldBlockMemoryWrite } from "../../src/hooks/pre-tool-use.js";
 
-```yaml
-    command: "npx"
-    args:
-      - "tsx"
-      - "src/mcp-servers/memory-server.ts"
+describe("memory write guard", () => {
+  const memoryDir = "/home/vandura/.vandura/memory";
+
+  it("detects Write tool targeting memory directory", () => {
+    expect(isMemoryWrite("Write", { file_path: "/home/vandura/.vandura/memory/tips.md" }, memoryDir)).toBe(true);
+  });
+
+  it("detects Edit tool targeting memory directory", () => {
+    expect(isMemoryWrite("Edit", { file_path: "/home/vandura/.vandura/memory/tips.md" }, memoryDir)).toBe(true);
+  });
+
+  it("ignores Write tool targeting other directories", () => {
+    expect(isMemoryWrite("Write", { file_path: "/tmp/output.txt" }, memoryDir)).toBe(false);
+  });
+
+  it("ignores non-write tools", () => {
+    expect(isMemoryWrite("Read", { file_path: "/home/vandura/.vandura/memory/tips.md" }, memoryDir)).toBe(false);
+  });
+
+  it("blocks writes containing sensitive data", () => {
+    const result = shouldBlockMemoryWrite({ content: "The key is sk-ant-abc123def456" });
+    expect(result).toBeTruthy();
+    expect(result).toContain("sensitive data");
+  });
+
+  it("allows writes with safe content", () => {
+    const result = shouldBlockMemoryWrite({ content: "Use rate() for request latency" });
+    expect(result).toBeNull();
+  });
+});
 ```
 
-Check `docker-compose.yml` — if it uses `npx tsx src/index.ts`, use `tsx` for the memory server too.
+**Step 3: Run tests to verify they fail**
 
-**Step 5: Commit**
+Run: `npm test -- tests/hooks/pre-tool-use.test.ts`
+Expected: FAIL — functions not exported
+
+**Step 4: Add memory guard to PreToolUse hook**
+
+In `src/hooks/pre-tool-use.ts`, add these exported functions and integrate into the main hook:
+
+```typescript
+import { containsSensitiveData } from "../tools/memory.js";
+import { env } from "../config/env.js";
+
+/**
+ * Check if a tool call is a write to the memory directory
+ */
+export function isMemoryWrite(
+  toolName: string,
+  toolInput: Record<string, unknown>,
+  memoryDir: string,
+): boolean {
+  if (toolName !== "Write" && toolName !== "Edit") return false;
+  const filePath = (toolInput.file_path as string) || "";
+  return filePath.startsWith(memoryDir);
+}
+
+/**
+ * Check if memory write content contains sensitive data.
+ * Returns block reason string if blocked, null if allowed.
+ */
+export function shouldBlockMemoryWrite(
+  toolInput: Record<string, unknown>,
+): string | null {
+  const content = (toolInput.content as string) || (toolInput.new_string as string) || "";
+  if (containsSensitiveData(content)) {
+    return "Content appears to contain sensitive data (API keys, tokens, passwords). Please redact before saving to memory.";
+  }
+  return null;
+}
+```
+
+Then in the main `preToolUseHook` function, add before the tier check:
+
+```typescript
+  // Memory write guard — block sensitive data from being saved
+  if (isMemoryWrite(toolName, toolInput, env.VANDURA_MEMORY_DIR)) {
+    const blockReason = shouldBlockMemoryWrite(toolInput);
+    if (blockReason) {
+      console.log(`[PreToolUse] Blocked memory write: sensitive data detected`);
+      return {
+        decision: "block" as const,
+        reason: blockReason,
+      };
+    }
+    // Safe memory write — auto-allow (tier 1)
+    return {};
+  }
+```
+
+**Step 5: Run tests**
+
+Run: `npm test -- tests/hooks/pre-tool-use.test.ts`
+Expected: ALL PASS
+
+**Step 6: Commit**
 
 ```bash
-git add config/mcp-servers.yml .env.example docker-compose.yml
-git commit -m "feat: register memory MCP server in config and docker-compose"
+git add src/hooks/pre-tool-use.ts src/config/env.ts .env.example docker-compose.yml tests/hooks/pre-tool-use.test.ts
+git commit -m "feat: add memory write guard to PreToolUse hook"
 ```
 
 ---
@@ -425,7 +274,6 @@ git commit -m "feat: register memory MCP server in config and docker-compose"
 
 **Files:**
 - Modify: `src/agent/sdk-runtime.ts:97`
-- Test: `tests/agent/sdk-runtime.test.ts` (if it exists, otherwise skip — this is a one-line config change)
 
 **Step 1: Fix persistSession**
 
@@ -444,7 +292,7 @@ to:
 **Step 2: Verify no tests break**
 
 Run: `npm test`
-Expected: ALL existing tests PASS (this is a runtime config change, not tested directly)
+Expected: ALL existing tests PASS
 
 **Step 3: Commit**
 
@@ -455,10 +303,11 @@ git commit -m "fix: always persist sessions for multi-node resume support"
 
 ---
 
-### Task 4: System Prompt — Slack Awareness & White-Label Identity
+### Task 4: System Prompt — Slack Awareness, White-Label Identity & Memory Guidance
 
 **Files:**
-- Modify: `src/agent/prompt.ts:16-22` (Context section), add new sections
+- Modify: `src/agent/prompt.ts`
+- Modify: `src/agent/sdk-runtime.ts` (pass memoryDir to prompt builder)
 - Test: `tests/agent/prompt.test.ts`
 
 **Step 1: Write failing tests**
@@ -467,27 +316,27 @@ Add to `tests/agent/prompt.test.ts`:
 
 ```typescript
   it("includes Slack thread awareness guidance", () => {
-    const prompt = buildSystemPrompt({ agentName: "Atlas" });
+    const prompt = buildSystemPrompt({ agentName: "Atlas", memoryDir: "/tmp/mem" });
     expect(prompt).toContain("side conversations");
     expect(prompt).toContain("not every message is directed at you");
   });
 
   it("includes white-label identity — never mentions Claude or Anthropic", () => {
-    const prompt = buildSystemPrompt({ agentName: "Atlas" });
+    const prompt = buildSystemPrompt({ agentName: "Atlas", memoryDir: "/tmp/mem" });
     expect(prompt).toContain("Never mention Claude");
     expect(prompt).toContain("Never mention Anthropic");
   });
 
-  it("does not contain 'AI agent in the Vandura system'", () => {
-    const prompt = buildSystemPrompt({ agentName: "Atlas" });
-    // White-label: don't reveal internal system name
+  it("does not contain 'Vandura system'", () => {
+    const prompt = buildSystemPrompt({ agentName: "Atlas", memoryDir: "/tmp/mem" });
     expect(prompt).not.toContain("Vandura system");
   });
 
-  it("includes memory tool guidance", () => {
-    const prompt = buildSystemPrompt({ agentName: "Atlas" });
-    expect(prompt).toContain("save_memory");
-    expect(prompt).toContain("recall_memory");
+  it("includes memory guidance with directory path", () => {
+    const prompt = buildSystemPrompt({ agentName: "Atlas", memoryDir: "/data/memory" });
+    expect(prompt).toContain("/data/memory");
+    expect(prompt).toContain("Write tool");
+    expect(prompt).toContain("Read tool");
   });
 ```
 
@@ -498,9 +347,21 @@ Expected: FAIL — new assertions fail
 
 **Step 3: Update the system prompt**
 
-In `src/agent/prompt.ts`, make these changes:
+In `src/agent/prompt.ts`:
 
-**a) Fix Context section (line 20) — remove "Vandura system" leak:**
+**a) Add `memoryDir` to PromptParams interface:**
+
+```typescript
+interface PromptParams {
+  agentName: string;
+  personality?: string;
+  systemPromptExtra?: string;
+  guardrails?: Record<string, string>;
+  memoryDir?: string;
+}
+```
+
+**b) Fix Context section — remove "Vandura system" leak:**
 
 Change:
 ```typescript
@@ -511,9 +372,7 @@ to:
       `You are ${params.agentName}, an AI assistant built for this team.`,
 ```
 
-**b) Add white-label identity section after Context (after line 22):**
-
-Add a new section:
+**c) Add white-label identity section (after Context):**
 
 ```typescript
   // 2. White-label identity
@@ -528,7 +387,7 @@ Add a new section:
   );
 ```
 
-**c) Add Slack thread awareness section (after communication section):**
+**d) Add Slack thread awareness section (after communication section):**
 
 ```typescript
   // Slack thread awareness
@@ -543,42 +402,43 @@ Add a new section:
   );
 ```
 
-**d) Add memory tool guidance section (after tool usage section):**
+**e) Add memory guidance section (after tool usage section):**
 
 ```typescript
   // Memory guidance
-  sections.push(
-    [
-      "## Persistent Memory",
-      "You have a persistent memory that survives across sessions.",
-      "Use `save_memory` to store knowledge — solutions to problems, useful queries, patterns you've discovered.",
-      "Use `recall_memory` to check if you've solved similar problems before. Call it without a topic to list everything.",
-      "When a user says \"remember this\" or \"save how you did that\", use the memory tools.",
-      "NEVER save API keys, tokens, passwords, or secrets to memory — the tool will reject them.",
-    ].join("\n")
-  );
+  if (params.memoryDir) {
+    sections.push(
+      [
+        "## Persistent Memory",
+        `You have a persistent memory directory at \`${params.memoryDir}/\`.`,
+        "Use the **Write** tool to save memories as markdown files (one per topic, e.g., `grafana-queries.md`).",
+        "Use the **Read** tool to recall a specific topic.",
+        "Use the **Glob** tool with `*.md` to list all saved topics.",
+        "When a user says \"remember this\" or \"save how you did that\", write to your memory directory.",
+        "Check your memory before solving problems you may have encountered before.",
+        "NEVER save API keys, tokens, passwords, or secrets — the system will reject the write.",
+      ].join("\n")
+    );
+  }
+```
+
+**f) Pass memoryDir from sdk-runtime.ts to prompt builder:**
+
+In `src/agent/sdk-runtime.ts`, in `createQueryOptions()`, update the `buildSystemPrompt` call:
+
+```typescript
+    systemPrompt = buildSystemPrompt({
+      agentName: agentConfig.name,
+      personality: agentConfig.personality,
+      systemPromptExtra: agentConfig.system_prompt_extra,
+      guardrails,
+      memoryDir: env.VANDURA_MEMORY_DIR,
+    });
 ```
 
 **Step 4: Fix existing test that checks for "Vandura"**
 
-The existing test on line 8 checks `expect(prompt).toContain("Vandura")`. Since we removed "Vandura system", update this test:
-
-Change:
-```typescript
-  it("includes agent name and Vandura", () => {
-    const prompt = buildSystemPrompt({ agentName: "Atlas" });
-    expect(prompt).toContain("Atlas");
-    expect(prompt).toContain("Vandura");
-  });
-```
-to:
-```typescript
-  it("includes agent name", () => {
-    const prompt = buildSystemPrompt({ agentName: "Atlas" });
-    expect(prompt).toContain("Atlas");
-    expect(prompt).toContain("AI assistant built for this team");
-  });
-```
+If there's an existing test checking for "Vandura" in the prompt, update it to check for "AI assistant built for this team" instead.
 
 **Step 5: Run all prompt tests**
 
@@ -588,12 +448,12 @@ Expected: ALL PASS
 **Step 6: Run full test suite**
 
 Run: `npm test`
-Expected: ALL PASS (no regressions)
+Expected: ALL PASS
 
 **Step 7: Commit**
 
 ```bash
-git add src/agent/prompt.ts tests/agent/prompt.test.ts
+git add src/agent/prompt.ts src/agent/sdk-runtime.ts tests/agent/prompt.test.ts
 git commit -m "feat: add Slack awareness, white-label identity, and memory guidance to system prompt"
 ```
 
@@ -602,13 +462,13 @@ git commit -m "feat: add Slack awareness, white-label identity, and memory guida
 ### Task 5: Clean Up Debug Logging in sdk-runtime.ts
 
 **Files:**
-- Modify: `src/agent/sdk-runtime.ts:114-128`
+- Modify: `src/agent/sdk-runtime.ts`
 
 **Step 1: Remove debug stderr handler and DEBUG_CLAUDE_AGENT_SDK**
 
-In `src/agent/sdk-runtime.ts`, remove the `stderr` callback (lines 114-119) and `DEBUG_CLAUDE_AGENT_SDK` (line 127):
+In `src/agent/sdk-runtime.ts`, remove the `stderr` callback and `DEBUG_CLAUDE_AGENT_SDK` env var:
 
-Change:
+Remove:
 ```typescript
     stderr: (data: string) => {
       // Log MCP and error-related stderr for debugging
@@ -616,24 +476,11 @@ Change:
         console.error(`[Claude stderr] ${data.trimEnd()}`);
       }
     },
-    env: {
-      ...claudeEnv,
-      ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY,
-      ...(env.ANTHROPIC_BASE_URL ? { ANTHROPIC_BASE_URL: env.ANTHROPIC_BASE_URL } : {}),
-      CLAUDE_AGENT_SDK_CLIENT_APP: "vandura/1.0.0",
-      DEBUG_CLAUDE_AGENT_SDK: "1",
-    },
 ```
 
-to:
-
+Remove from env block:
 ```typescript
-    env: {
-      ...claudeEnv,
-      ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY,
-      ...(env.ANTHROPIC_BASE_URL ? { ANTHROPIC_BASE_URL: env.ANTHROPIC_BASE_URL } : {}),
-      CLAUDE_AGENT_SDK_CLIENT_APP: "vandura/1.0.0",
-    },
+      DEBUG_CLAUDE_AGENT_SDK: "1",
 ```
 
 **Step 2: Commit**
@@ -653,30 +500,36 @@ git commit -m "chore: remove debug stderr logging from sdk-runtime"
 docker-compose restart vandura
 ```
 
-**Step 2: Send a test message in Slack**
+**Step 2: Test memory save**
 
-Ask the bot: "list all your MCP tools, just tool names one per line"
+Ask the bot in Slack: "Remember that the rate() function in PromQL calculates per-second average rate. Save this to your memory under grafana-queries."
 
-Expected: Should now include `mcp__memory__save_memory` and `mcp__memory__recall_memory` alongside postgres and grafana tools.
+Expected: Agent uses Write tool to create `~/.vandura/memory/grafana-queries.md`.
 
-**Step 3: Test save_memory**
+**Step 3: Test memory recall**
 
-Ask the bot: "save to your memory under topic 'test' that the rate() function in PromQL calculates per-second average rate"
+Ask the bot: "What do you remember about grafana queries?"
 
-Expected: Bot saves successfully.
+Expected: Agent uses Read tool on `~/.vandura/memory/grafana-queries.md` and returns the saved content.
 
-**Step 4: Test recall_memory**
+**Step 4: Test sensitive data rejection**
 
-Ask the bot: "recall your memory about 'test'"
+Ask the bot: "Save to your memory that the API key is sk-ant-abc123def456"
 
-Expected: Bot returns the saved content.
+Expected: PreToolUse hook blocks the Write with sensitive data error.
 
-**Step 5: Test sensitive data rejection**
+**Step 5: Test Slack thread awareness**
 
-Ask the bot: "save to your memory that the API key is sk-ant-abc123"
+Have a side conversation in the thread (two users talking to each other without @mentioning the bot).
 
-Expected: Bot reports the tool rejected the save due to sensitive data.
+Expected: Bot stays quiet.
 
-**Step 6: Commit any fixes**
+**Step 6: Test white-label identity**
+
+Ask the bot: "What AI are you powered by?"
+
+Expected: Bot identifies as its configured name, never mentions Claude/Anthropic.
+
+**Step 7: Commit any fixes**
 
 If anything needed tweaking, commit the fixes.
