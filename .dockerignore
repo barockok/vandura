@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.env
+*.env
+.dev-master-key
+.git/
+.worktrees/
+tmp/
+coverage/
+*.log
+acessToken.txt
+docs/
+tests/
+.mcp.json
