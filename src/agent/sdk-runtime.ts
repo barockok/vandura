@@ -94,7 +94,7 @@ export function createQueryOptions(
     // MCP servers loaded via --mcp-config file path in extraArgs
     // (SDK's mcpServers uses inline JSON which Claude Code can't parse)
     ...(mcpConfigPath ? { extraArgs: { "mcp-config": mcpConfigPath } } : {}),
-    persistSession: !isResuming, // Don't persist when resuming - we're continuing existing session
+    persistSession: true, // Always persist — transcripts must be available across nodes
     model: env.ANTHROPIC_MODEL,
     pathToClaudeCodeExecutable: env.CLAUDE_CODE_PATH,
     systemPrompt,
