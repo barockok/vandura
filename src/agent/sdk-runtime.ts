@@ -1,3 +1,5 @@
+import { writeFile, mkdir } from "node:fs/promises";
+import { join } from "node:path";
 import { query, type Options, type PermissionResult, type SDKMessage, type SettingSource } from "@anthropic-ai/claude-agent-sdk";
 import type { BetaTextBlock } from "@anthropic-ai/sdk/resources/beta/messages/messages.js";
 import { env } from "../config/env.js";
@@ -36,6 +38,19 @@ export interface SessionResult {
 }
 
 /**
+ * Write .mcp.json to the session sandbox so Claude Code discovers MCP servers.
+ * The SDK's --mcp-config inline JSON doesn't work reliably with Claude Code,
+ * but file-based discovery via .mcp.json works.
+ */
+async function writeMcpConfig(sandboxPath: string, mcpConfig: LoadedMcpConfig): Promise<void> {
+  if (Object.keys(mcpConfig.servers).length === 0) return;
+
+  const mcpJson = { mcpServers: mcpConfig.servers };
+  await mkdir(sandboxPath, { recursive: true });
+  await writeFile(join(sandboxPath, ".mcp.json"), JSON.stringify(mcpJson, null, 2));
+}
+
+/**
  * Create SDK query options for a session
  */
 export function createQueryOptions(
@@ -70,7 +85,8 @@ export function createQueryOptions(
 
   const queryOptions: Options = {
     cwd: session.sandboxPath,
-    mcpServers: mcpConfig.servers,
+    // MCP servers are provided via .mcp.json in the sandbox directory
+    // (SDK's --mcp-config inline JSON doesn't work reliably with Claude Code)
     persistSession: !isResuming, // Don't persist when resuming - we're continuing existing session
     model: env.ANTHROPIC_MODEL,
     pathToClaudeCodeExecutable: env.CLAUDE_CODE_PATH,
@@ -112,6 +128,9 @@ export async function runSession(
   agentConfig?: AgentConfig
 ): Promise<SessionResult> {
   const options = createQueryOptions(session, mcpConfig, agentConfig);
+
+  // Write .mcp.json so Claude Code discovers MCP servers
+  await writeMcpConfig(session.sandboxPath, mcpConfig);
 
   try {
     const queryResult = query({
@@ -199,6 +218,9 @@ export async function continueSession(
   agentConfig?: AgentConfig
 ): Promise<SessionResult> {
   const options = createQueryOptions(session, mcpConfig, agentConfig, true);
+
+  // Write .mcp.json so Claude Code discovers MCP servers
+  await writeMcpConfig(session.sandboxPath, mcpConfig);
 
   try {
     const queryResult = query({
