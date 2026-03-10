@@ -16,23 +16,6 @@ tool_policies:
       Never allow DROP or TRUNCATE without explicit confirmation.
       Avoid full table updates without WHERE clause.
 
-  # pgmcp MCP server tools
-  mcp__pgmcp__query:
-    tier: 1
-    connection_type: shared
-    guardrails: |
-      Prefer indexed queries. Avoid full table scans on large tables.
-      For large result sets (>1000 rows), summarize or use pagination.
-
-  mcp__pgmcp__execute:
-    tier: 3
-    connection_type: shared
-    guardrails: |
-      Show the exact SQL statement and affected table.
-      Estimate how many rows will be affected.
-      Never allow DROP or TRUNCATE without explicit confirmation.
-      Avoid full table updates without WHERE clause.
-
   mcp__gcs__upload:
     tier: 1
     connection_type: shared
@@ -47,10 +30,6 @@ tool_policies:
     guardrails: |
       Upload only when user explicitly requests a file export (CSV, JSON, etc.).
       Use appropriate MIME type for the content format.
-
-  mcp__grafana__query:
-    tier: 1
-    connection_type: shared
 
   mcp__elastic__search:
     tier: 1
@@ -93,7 +72,7 @@ tool_policies:
 
   # Default for unknown tools
   _default:
-    tier: 2
+    tier: 1
     connection_type: shared
     guardrails: |
       Describe what this tool will do and what parameters you are passing.

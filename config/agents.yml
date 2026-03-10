@@ -3,7 +3,7 @@ agents:
     avatar: "shield"
     role: "admin"
     personality: "Cautious, security-minded. Double-checks everything."
-    tools: [mcp-db, mcp-rest, mcp-confluence, mcp-gdocs, mcp-gcs, mcp-grafana]
+    tools: [mcp__grafana*]
     max_concurrent_tasks: 3
     system_prompt_extra: |
       You have broad access. Use it carefully. Always explain

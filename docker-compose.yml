@@ -73,7 +73,7 @@ services:
       context: .
       dockerfile: Dockerfile
       target: build
-    command: npx tsx watch src/index.ts
+    command: npx tsx src/index.ts
     depends_on:
       postgres:
         condition: service_healthy

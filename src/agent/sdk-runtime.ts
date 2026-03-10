@@ -1,6 +1,6 @@
 import { writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { query, type Options, type PermissionResult, type SDKMessage, type SettingSource } from "@anthropic-ai/claude-agent-sdk";
+import { query, type Options, type PermissionResult, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { BetaTextBlock } from "@anthropic-ai/sdk/resources/beta/messages/messages.js";
 import { env } from "../config/env.js";
 import type { AgentConfig } from "../config/types.js";
@@ -38,16 +38,21 @@ export interface SessionResult {
 }
 
 /**
- * Write .mcp.json to the session sandbox so Claude Code discovers MCP servers.
- * The SDK's --mcp-config inline JSON doesn't work reliably with Claude Code,
- * but file-based discovery via .mcp.json works.
+ * Write MCP server config to a file for Claude Code.
+ *
+ * Claude Code's --mcp-config expects a file path, not inline JSON.
+ * The SDK's mcpServers option serializes to inline JSON which fails.
+ * Project-scoped .mcp.json needs interactive approval (doesn't work in SDK mode).
+ * Solution: write config to a file, pass path via extraArgs as --mcp-config.
  */
-async function writeMcpConfig(sandboxPath: string, mcpConfig: LoadedMcpConfig): Promise<void> {
-  if (Object.keys(mcpConfig.servers).length === 0) return;
+async function writeMcpConfigFile(sandboxPath: string, mcpConfig: LoadedMcpConfig): Promise<string | undefined> {
+  if (Object.keys(mcpConfig.servers).length === 0) return undefined;
 
-  const mcpJson = { mcpServers: mcpConfig.servers };
+  const config = { mcpServers: mcpConfig.servers };
   await mkdir(sandboxPath, { recursive: true });
-  await writeFile(join(sandboxPath, ".mcp.json"), JSON.stringify(mcpJson, null, 2));
+  const configPath = join(sandboxPath, "mcp-config.json");
+  await writeFile(configPath, JSON.stringify(config, null, 2));
+  return configPath;
 }
 
 /**
@@ -57,7 +62,8 @@ export function createQueryOptions(
   session: Session,
   mcpConfig: LoadedMcpConfig,
   agentConfig?: AgentConfig,
-  isResuming: boolean = false
+  isResuming: boolean = false,
+  mcpConfigPath?: string,
 ): Options {
   // Build system prompt with guardrails
   let systemPrompt: string | undefined;
@@ -85,8 +91,9 @@ export function createQueryOptions(
 
   const queryOptions: Options = {
     cwd: session.sandboxPath,
-    // MCP servers are provided via .mcp.json in the sandbox directory
-    // (SDK's --mcp-config inline JSON doesn't work reliably with Claude Code)
+    // MCP servers loaded via --mcp-config file path in extraArgs
+    // (SDK's mcpServers uses inline JSON which Claude Code can't parse)
+    ...(mcpConfigPath ? { extraArgs: { "mcp-config": mcpConfigPath } } : {}),
     persistSession: !isResuming, // Don't persist when resuming - we're continuing existing session
     model: env.ANTHROPIC_MODEL,
     pathToClaudeCodeExecutable: env.CLAUDE_CODE_PATH,
@@ -127,10 +134,8 @@ export async function runSession(
   onMessage: MessageCallback,
   agentConfig?: AgentConfig
 ): Promise<SessionResult> {
-  const options = createQueryOptions(session, mcpConfig, agentConfig);
-
-  // Write .mcp.json so Claude Code discovers MCP servers
-  await writeMcpConfig(session.sandboxPath, mcpConfig);
+  const mcpConfigPath = await writeMcpConfigFile(session.sandboxPath, mcpConfig);
+  const options = createQueryOptions(session, mcpConfig, agentConfig, false, mcpConfigPath);
 
   try {
     const queryResult = query({
@@ -217,10 +222,8 @@ export async function continueSession(
   onMessage: MessageCallback,
   agentConfig?: AgentConfig
 ): Promise<SessionResult> {
-  const options = createQueryOptions(session, mcpConfig, agentConfig, true);
-
-  // Write .mcp.json so Claude Code discovers MCP servers
-  await writeMcpConfig(session.sandboxPath, mcpConfig);
+  const mcpConfigPath = await writeMcpConfigFile(session.sandboxPath, mcpConfig);
+  const options = createQueryOptions(session, mcpConfig, agentConfig, true, mcpConfigPath);
 
   try {
     const queryResult = query({
