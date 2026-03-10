@@ -11,6 +11,35 @@
 import type { HookCallback, PreToolUseHookInput } from "@anthropic-ai/claude-agent-sdk";
 import { getToolTier, storePendingApproval, getResolvedApproval } from "../agent/permissions.js";
 import { postApprovalToSlack } from "./approval-notifier.js";
+import { containsSensitiveData } from "../tools/memory.js";
+import { env } from "../config/env.js";
+
+/**
+ * Check if a tool call is a write to the memory directory
+ */
+export function isMemoryWrite(
+  toolName: string,
+  toolInput: Record<string, unknown>,
+  memoryDir: string,
+): boolean {
+  if (toolName !== "Write" && toolName !== "Edit") return false;
+  const filePath = (toolInput.file_path as string) || "";
+  return filePath.startsWith(memoryDir);
+}
+
+/**
+ * Check if memory write content contains sensitive data.
+ * Returns block reason string if blocked, null if allowed.
+ */
+export function shouldBlockMemoryWrite(
+  toolInput: Record<string, unknown>,
+): string | null {
+  const content = (toolInput.content as string) || (toolInput.new_string as string) || "";
+  if (containsSensitiveData(content)) {
+    return "Content appears to contain sensitive data (API keys, tokens, passwords). Please redact before saving to memory.";
+  }
+  return null;
+}
 
 export const preToolUseHook: HookCallback = async (input, toolUseId, context) => {
   const preInput = input as PreToolUseHookInput;
@@ -19,6 +48,20 @@ export const preToolUseHook: HookCallback = async (input, toolUseId, context) =>
   const toolInput = (preInput.tool_input as Record<string, unknown>) ?? {};
 
   console.log(`[PreToolUse] Tool: ${toolName}, Session: ${sessionId}`);
+
+  // Memory write guard — block sensitive data from being saved
+  if (isMemoryWrite(toolName, toolInput, env.VANDURA_MEMORY_DIR)) {
+    const blockReason = shouldBlockMemoryWrite(toolInput);
+    if (blockReason) {
+      console.log(`[PreToolUse] Blocked memory write: sensitive data detected`);
+      return {
+        decision: "block" as const,
+        reason: blockReason,
+      };
+    }
+    // Safe memory write — auto-allow (tier 1)
+    return {};
+  }
 
   const tier = getToolTier(toolName);
 

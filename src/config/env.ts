@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { config } from "dotenv";
 config();
 
@@ -21,4 +22,5 @@ export const env = {
   SLACK_APP_TOKEN: process.env.SLACK_APP_TOKEN ?? "",
   SLACK_BOT_TOKEN: process.env.SLACK_BOT_TOKEN ?? "",
   SLACK_CHANNEL_ID: process.env.SLACK_CHANNEL_ID ?? "",
+  VANDURA_MEMORY_DIR: process.env.VANDURA_MEMORY_DIR || join(process.env.HOME || "/root", ".vandura", "memory"),
 } as const;

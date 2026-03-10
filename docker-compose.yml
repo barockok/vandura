@@ -105,6 +105,7 @@ services:
       SLACK_APP_TOKEN: ${SLACK_APP_TOKEN}
       SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN}
       SLACK_CHANNEL_ID: ${SLACK_CHANNEL_ID}
+      VANDURA_MEMORY_DIR: /home/vandura/.vandura/memory
       CLAUDE_SESSIONS_DIR: /home/vandura/.claude/sessions
       CLAUDE_CODE_PATH: /usr/local/bin/claude
       GRAFANA_URL: ${GRAFANA_URL}
