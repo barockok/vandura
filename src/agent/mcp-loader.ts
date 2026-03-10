@@ -1,6 +1,5 @@
 import { readFile } from "node:fs/promises";
 import { parse as parseYaml } from "yaml";
-import { env } from "../config/env.js";
 import type { McpConfig } from "../mcp/types.js";
 
 /**
@@ -34,8 +33,7 @@ export interface LoadedMcpConfig {
  */
 function substituteEnvVars(value: string): string {
   return value.replace(/\$\{([^}]+)\}/g, (_, key) => {
-    const envValue = (env as Record<string, unknown>)[key];
-    return typeof envValue === "string" ? envValue : String(envValue || "");
+    return process.env[key] ?? "";
   });
 }
 
@@ -66,7 +64,7 @@ export async function loadMcpConfig(configPath: string): Promise<LoadedMcpConfig
           // Include full environment so MCP server can find commands like npx
           ...process.env as Record<string, string>,
           // Override with specific database URL
-          DATABASE_URL: env.DB_TOOL_CONNECTION_URL || env.DATABASE_URL,
+          DATABASE_URL: process.env.DB_TOOL_CONNECTION_URL || process.env.DATABASE_URL || "",
           // Merge server-specific env vars (with ${VAR} substitution)
           ...Object.fromEntries(
             Object.entries(serverConfig.env ?? {}).map(([k, v]) => [k, substituteEnvVars(v)])
