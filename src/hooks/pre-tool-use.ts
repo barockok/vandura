@@ -24,7 +24,8 @@ export function isMemoryWrite(
 ): boolean {
   if (toolName !== "Write" && toolName !== "Edit") return false;
   const filePath = (toolInput.file_path as string) || "";
-  return filePath.startsWith(memoryDir);
+  const normalizedDir = memoryDir.endsWith("/") ? memoryDir : memoryDir + "/";
+  return filePath.startsWith(normalizedDir);
 }
 
 /**

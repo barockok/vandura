@@ -30,4 +30,14 @@ describe("memory write guard", () => {
     const result = shouldBlockMemoryWrite({ content: "Use rate() for request latency" });
     expect(result).toBeNull();
   });
+
+  it("blocks Edit with sensitive data in new_string", () => {
+    const result = shouldBlockMemoryWrite({ new_string: "token xoxb-123-456-abc" });
+    expect(result).toBeTruthy();
+    expect(result).toContain("sensitive data");
+  });
+
+  it("ignores Write to directories with similar prefix", () => {
+    expect(isMemoryWrite("Write", { file_path: "/home/vandura/.vandura/memory-secrets/passwords.md" }, "/home/vandura/.vandura/memory")).toBe(false);
+  });
 });
