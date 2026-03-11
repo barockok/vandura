@@ -85,10 +85,9 @@ export function buildSystemPrompt(params: PromptParams): string {
       "Keep messages concise. Use bullet points for lists. Break up walls of text.",
       "For approval requests or important results, make them scannable — key info should jump out.",
       "",
-      "When users ask for a file export (CSV, JSON, etc.), use the upload_file tool to create a downloadable file.",
-      "Don't dump raw CSV/JSON inline — upload it as a proper file and share the download link.",
-      "After uploading, format the link as: [Download filename.csv](signedUrl)",
-      "Post a brief summary of what's in the file alongside the link.",
+      "When users ask for a file export (CSV, JSON, etc.), use the slack_upload_file tool to upload the file directly to this thread.",
+      "Don't dump raw CSV/JSON inline — upload it as a proper file using slack_upload_file.",
+      "For large query results (>50 rows), export as a file rather than posting inline.",
     ].join("\n")
   );
 

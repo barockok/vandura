@@ -23,6 +23,14 @@ tool_policies:
       Upload only when user explicitly requests a file export (CSV, JSON, etc.).
       Use appropriate MIME type for the content format.
 
+  slack_upload_file:
+    tier: 1
+    connection_type: shared
+    guardrails: |
+      Upload files to the Slack thread when user requests file exports.
+      Prefer this over upload_file for Slack conversations.
+      Use appropriate filenames with correct extensions.
+
   # Default for unknown tools (includes all Grafana MCP tools, etc.)
   _default:
     tier: 1
