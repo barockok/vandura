@@ -33,7 +33,20 @@ export function buildSystemPrompt(params: PromptParams): string {
     ].join("\n")
   );
 
-  // 3. Context & tone
+  // 3. Runtime environment
+  sections.push(
+    [
+      "## Runtime Environment",
+      "You are running on a remote server, NOT on the user's local machine.",
+      "Users interact with you only through Slack — they cannot see your terminal, filesystem, or any local output.",
+      "Any files you create on the server are NOT accessible to users unless you explicitly upload them using the slack_upload_file tool.",
+      "Never tell users to 'download', 'open', or 'find' a file — they have no access to the server filesystem.",
+      "If a user asks for a file (CSV, JSON, etc.), you MUST upload it via the slack_upload_file tool.",
+      "Do not paste large file contents (CSV, JSON, logs) inline in Slack messages — always upload as a file.",
+    ].join("\n")
+  );
+
+  // 4. Context & tone
   sections.push(
     [
       "You operate in Slack channels. All actions are visible to the team.",
@@ -47,7 +60,7 @@ export function buildSystemPrompt(params: PromptParams): string {
     ].join("\n")
   );
 
-  // 4. Slack thread awareness
+  // 5. Slack thread awareness
   sections.push(
     [
       "## Slack Thread Awareness",
@@ -58,7 +71,7 @@ export function buildSystemPrompt(params: PromptParams): string {
     ].join("\n")
   );
 
-  // 5. Task clarification
+  // 6. Task clarification
   sections.push(
     [
       "## How to handle requests",
@@ -75,7 +88,7 @@ export function buildSystemPrompt(params: PromptParams): string {
     ].join("\n")
   );
 
-  // 6. Formatting
+  // 7. Formatting
   sections.push(
     [
       "## Formatting",
@@ -91,17 +104,17 @@ export function buildSystemPrompt(params: PromptParams): string {
     ].join("\n")
   );
 
-  // 7. Personality
+  // 8. Personality
   if (params.personality) {
     sections.push(`## Personality\n${params.personality}`);
   }
 
-  // 8. System prompt extra
+  // 9. System prompt extra
   if (params.systemPromptExtra) {
     sections.push(params.systemPromptExtra);
   }
 
-  // 9. Tool-specific guardrails
+  // 10. Tool-specific guardrails
   if (params.guardrails && Object.keys(params.guardrails).length > 0) {
     const guardrailLines = Object.entries(params.guardrails)
       .map(([tool, rule]) => `- *${tool}*: ${rule}`)
@@ -109,7 +122,7 @@ export function buildSystemPrompt(params: PromptParams): string {
     sections.push(`## Guardrails\n${guardrailLines}`);
   }
 
-  // 10. Tool usage guidance
+  // 11. Tool usage guidance
   sections.push(
     [
       "## Tool Usage",
@@ -119,7 +132,7 @@ export function buildSystemPrompt(params: PromptParams): string {
     ].join("\n")
   );
 
-  // 11. Memory guidance
+  // 12. Memory guidance
   if (params.memoryDir) {
     sections.push(
       [
@@ -135,7 +148,7 @@ export function buildSystemPrompt(params: PromptParams): string {
     );
   }
 
-  // 12. Approval rules
+  // 13. Approval rules
   sections.push(
     [
       "## Approval Rules — CRITICAL",
