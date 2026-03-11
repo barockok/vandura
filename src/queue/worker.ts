@@ -146,6 +146,9 @@ async function processStartSession(job: Job<StartSessionJobData>): Promise<JobRe
     if (fileResult.textAnnotations.length > 0) {
       userMessage = fileResult.textAnnotations.join("\n") + "\n\n" + message;
     }
+    if (fileResult.imageContents.length > 0) {
+      console.log(`[Worker] ${fileResult.imageContents.length} image(s) saved to sandbox for vision access via Read tool`);
+    }
   }
 
   // Run the agent session
@@ -213,6 +216,9 @@ async function processContinueSession(job: Job<ContinueSessionJobData>): Promise
     });
     if (fileResult.textAnnotations.length > 0) {
       userMessage = fileResult.textAnnotations.join("\n") + "\n\n" + message;
+    }
+    if (fileResult.imageContents.length > 0) {
+      console.log(`[Worker] ${fileResult.imageContents.length} image(s) saved to sandbox for vision access via Read tool`);
     }
   }
 
