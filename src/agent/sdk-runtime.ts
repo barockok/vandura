@@ -1,6 +1,18 @@
 import { writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { query, type Options, type PermissionResult, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+
+/**
+ * Sanitize internal error messages so they don't leak implementation details
+ * (e.g. "Claude Code process terminated by signal SIGKILL") to end users.
+ */
+function sanitizeErrorMessage(error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error);
+  // Log the real error for debugging
+  console.error(`[Runtime] Raw error: ${raw}`);
+  // Return a generic message — never expose internals to Slack
+  return "Something went wrong while processing your request. Please try again.";
+}
 import type { BetaTextBlock } from "@anthropic-ai/sdk/resources/beta/messages/messages.js";
 import { env } from "../config/env.js";
 import type { AgentConfig } from "../config/types.js";
@@ -99,6 +111,13 @@ export function createQueryOptions(
     model: env.ANTHROPIC_MODEL,
     pathToClaudeCodeExecutable: env.CLAUDE_CODE_PATH,
     systemPrompt,
+    // Debug logging — enable with CLAUDE_DEBUG=true
+    ...(env.CLAUDE_DEBUG ? {
+      debug: true,
+      stderr: (data: string) => {
+        process.stderr.write(`[Claude:${session.id.substring(0, 8)}] ${data}`);
+      },
+    } : {}),
     hooks: {
       PreToolUse: [{ hooks: [preToolUseHook] }],
       PostToolUse: [{ hooks: [postToolUseHook] }],
@@ -155,9 +174,10 @@ export async function runSession(
     return { status: "completed" };
   } catch (error) {
     console.error(`[Runtime] Error in session ${session.id}:`, error);
+    const userMessage = sanitizeErrorMessage(error);
     await onMessage({
       type: "error",
-      content: error instanceof Error ? error.message : "Unknown error",
+      content: userMessage,
       sessionId: session.id,
     });
     return {
@@ -246,9 +266,10 @@ export async function continueSession(
     return { status: "completed" };
   } catch (error) {
     console.error(`[Runtime] Error continuing session ${session.id}:`, error);
+    const userMessage = sanitizeErrorMessage(error);
     await onMessage({
       type: "error",
-      content: error instanceof Error ? error.message : "Unknown error",
+      content: userMessage,
       sessionId: session.id,
     });
     return {

@@ -23,4 +23,5 @@ export const env = {
   SLACK_BOT_TOKEN: process.env.SLACK_BOT_TOKEN ?? "",
   SLACK_CHANNEL_ID: process.env.SLACK_CHANNEL_ID ?? "",
   VANDURA_MEMORY_DIR: process.env.VANDURA_MEMORY_DIR || join(process.env.HOME || "/root", ".vandura", "memory"),
+  CLAUDE_DEBUG: process.env.CLAUDE_DEBUG === "true" || process.env.CLAUDE_DEBUG === "1",
 } as const;

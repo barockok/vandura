@@ -84,7 +84,7 @@ services:
     volumes:
       - ./src:/app/src
       - ./config:/app/config
-      - sessions:/home/vandura/.claude/sessions
+      - claudedata:/home/vandura/.claude
     ports:
       - "3000:3000"
     environment:
@@ -108,6 +108,7 @@ services:
       VANDURA_MEMORY_DIR: /home/vandura/.vandura/memory
       CLAUDE_SESSIONS_DIR: /home/vandura/.claude/sessions
       CLAUDE_CODE_PATH: /usr/local/bin/claude
+      CLAUDE_DEBUG: "true"
       GRAFANA_URL: ${GRAFANA_URL}
       GRAFANA_API_KEY: ${GRAFANA_API_KEY}
 
@@ -117,3 +118,4 @@ volumes:
   miniodata:
   esdata:
   sessions:
+  claudedata:
