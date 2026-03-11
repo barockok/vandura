@@ -58,6 +58,7 @@ export async function createSession(params: {
     status: row.status,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    botEngaged: true,
   };
 }
 
@@ -75,6 +76,7 @@ interface SessionRow {
   updated_at: Date;
   initiator_slack_id: string | null;
   checker_slack_id: string | null;
+  bot_engaged: boolean;
 }
 
 function rowToSession(row: SessionRow): Session {
@@ -89,6 +91,7 @@ function rowToSession(row: SessionRow): Session {
     updatedAt: row.updated_at,
     initiatorSlackId: row.initiator_slack_id || undefined,
     checkerSlackId: row.checker_slack_id || undefined,
+    botEngaged: row.bot_engaged ?? true,
   };
 }
 
@@ -184,4 +187,17 @@ export async function cleanupOldSessions(daysOld: number = 7): Promise<number> {
   );
 
   return deleteResult.rowCount || 0;
+}
+
+/**
+ * Update the bot engagement flag for a session
+ */
+export async function updateBotEngaged(
+  sessionId: string,
+  engaged: boolean
+): Promise<void> {
+  await pool.query(
+    `UPDATE sessions SET bot_engaged = $1, updated_at = NOW() WHERE id = $2`,
+    [engaged, sessionId]
+  );
 }

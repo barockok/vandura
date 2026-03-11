@@ -92,6 +92,7 @@ export interface Session {
   updatedAt: Date;
   initiatorSlackId?: string;
   checkerSlackId?: string;
+  botEngaged: boolean;
 }
 
 /**
