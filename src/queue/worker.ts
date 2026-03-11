@@ -8,6 +8,7 @@ import { runSession, continueSession, type AgentMessage } from "../agent/sdk-run
 import { loadAgents } from "../config/loader.js";
 import type { AgentConfig } from "../config/types.js";
 import { markdownToSlack } from "../slack/format.js";
+import { createSlackUploadServer } from "../tools/slack-upload-file.js";
 
 // Slack client placeholder - will be injected
 let slackClient: {
@@ -20,6 +21,16 @@ let slackClient: {
  */
 export function setSlackClient(client: typeof slackClient): void {
   slackClient = client;
+}
+
+// Slack Web API client for file uploads
+let slackWebClient: { filesUploadV2: (params: Record<string, unknown>) => Promise<unknown> } | null = null;
+
+/**
+ * Set the Slack Web API client for file uploads
+ */
+export function setSlackWebClient(client: { filesUploadV2: (params: Record<string, unknown>) => Promise<unknown> }): void {
+  slackWebClient = client;
 }
 
 // MCP config cache
@@ -112,13 +123,24 @@ async function processStartSession(job: Job<StartSessionJobData>): Promise<JobRe
 
   console.log(`[Worker] MCP servers configured: ${Object.keys(mcpConfig.servers).join(", ")}`);
 
+  // Create slack upload MCP server for this session
+  const sdkMcpServers: Record<string, ReturnType<typeof createSlackUploadServer>> = {};
+  if (slackWebClient) {
+    sdkMcpServers["slack-upload"] = createSlackUploadServer({
+      slackClient: slackWebClient,
+      channelId: session.channelId,
+      threadTs: session.threadTs || undefined,
+    });
+  }
+
   // Run the agent session
   const result = await runSession(
     session,
     message,
     mcpConfig,
     (msg) => sendToSlack(session, msg),
-    agentCfg || undefined
+    agentCfg || undefined,
+    sdkMcpServers,
   );
 
   return {
@@ -156,13 +178,24 @@ async function processContinueSession(job: Job<ContinueSessionJobData>): Promise
   const agentCfg = await getAgentConfig();
   console.log(`[Worker] MCP servers: ${Object.keys(mcpConfig.servers)}`);
 
+  // Create slack upload MCP server for this session
+  const sdkMcpServers: Record<string, ReturnType<typeof createSlackUploadServer>> = {};
+  if (slackWebClient) {
+    sdkMcpServers["slack-upload"] = createSlackUploadServer({
+      slackClient: slackWebClient,
+      channelId: session.channelId,
+      threadTs: session.threadTs || undefined,
+    });
+  }
+
   // Continue the session (SDK will resume using session.id)
   const result = await continueSession(
     session,
     message,
     mcpConfig,
     (msg) => sendToSlack(session, msg),
-    agentCfg || undefined
+    agentCfg || undefined,
+    sdkMcpServers,
   );
 
   return {

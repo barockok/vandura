@@ -19,7 +19,7 @@ import { TaskLifecycle } from "./slack/task-lifecycle.js";
 import { ThreadManager } from "./threads/manager.js";
 import { UserManager } from "./users/manager.js";
 import { createQueue, closeQueue } from "./queue/index.js";
-import { createWorker, closeWorker, setSlackClient } from "./queue/worker.js";
+import { createWorker, closeWorker, setSlackClient, setSlackWebClient } from "./queue/worker.js";
 import type { Worker } from "bullmq";
 
 export async function createApp() {
@@ -73,6 +73,8 @@ export async function createApp() {
   const queue = createQueue();
   const responder = createSlackResponder(slackApp);
   setSlackClient(responder);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  setSlackWebClient({ filesUploadV2: (params: any) => slackApp.client.files.uploadV2(params) });
 
   // Load tool policies for worker
   await loadToolPoliciesForWorker(path.join(configDir, "tool-policies.yml"));

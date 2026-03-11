@@ -13,6 +13,7 @@ function sanitizeErrorMessage(error: unknown): string {
   // Return a generic message — never expose internals to Slack
   return "Something went wrong while processing your request. Please try again.";
 }
+import type { McpSdkServerConfigWithInstance } from "@anthropic-ai/claude-agent-sdk";
 import type { BetaTextBlock } from "@anthropic-ai/sdk/resources/beta/messages/messages.js";
 import { env } from "../config/env.js";
 import type { AgentConfig } from "../config/types.js";
@@ -76,6 +77,7 @@ export function createQueryOptions(
   agentConfig?: AgentConfig,
   isResuming: boolean = false,
   mcpConfigPath?: string,
+  sdkMcpServers?: Record<string, McpSdkServerConfigWithInstance>,
 ): Options {
   // Build system prompt with guardrails
   let systemPrompt: string | undefined;
@@ -107,6 +109,10 @@ export function createQueryOptions(
     // MCP servers loaded via --mcp-config file path in extraArgs
     // (SDK's mcpServers uses inline JSON which Claude Code can't parse)
     ...(mcpConfigPath ? { extraArgs: { "mcp-config": mcpConfigPath } } : {}),
+    // Register in-process SDK MCP servers (slack_upload_file, etc.)
+    ...(sdkMcpServers && Object.keys(sdkMcpServers).length > 0
+      ? { mcpServers: sdkMcpServers }
+      : {}),
     persistSession: true, // Always persist — transcripts must be available across nodes
     model: env.ANTHROPIC_MODEL,
     pathToClaudeCodeExecutable: env.CLAUDE_CODE_PATH,
@@ -152,10 +158,11 @@ export async function runSession(
   userMessage: string,
   mcpConfig: LoadedMcpConfig,
   onMessage: MessageCallback,
-  agentConfig?: AgentConfig
+  agentConfig?: AgentConfig,
+  sdkMcpServers?: Record<string, McpSdkServerConfigWithInstance>,
 ): Promise<SessionResult> {
   const mcpConfigPath = await writeMcpConfigFile(session.sandboxPath, mcpConfig);
-  const options = createQueryOptions(session, mcpConfig, agentConfig, false, mcpConfigPath);
+  const options = createQueryOptions(session, mcpConfig, agentConfig, false, mcpConfigPath, sdkMcpServers);
 
   try {
     const queryResult = query({
@@ -241,10 +248,11 @@ export async function continueSession(
   userMessage: string,
   mcpConfig: LoadedMcpConfig,
   onMessage: MessageCallback,
-  agentConfig?: AgentConfig
+  agentConfig?: AgentConfig,
+  sdkMcpServers?: Record<string, McpSdkServerConfigWithInstance>,
 ): Promise<SessionResult> {
   const mcpConfigPath = await writeMcpConfigFile(session.sandboxPath, mcpConfig);
-  const options = createQueryOptions(session, mcpConfig, agentConfig, true, mcpConfigPath);
+  const options = createQueryOptions(session, mcpConfig, agentConfig, true, mcpConfigPath, sdkMcpServers);
 
   try {
     const queryResult = query({
