@@ -9,6 +9,13 @@ export interface MentionPayload {
   channel: string;
   ts: string;
   say: SayFn;
+  files?: Array<{
+    id: string;
+    name: string;
+    mimetype: string;
+    url_private_download: string;
+    size: number;
+  }>;
 }
 
 export interface ThreadMessagePayload {
@@ -18,6 +25,13 @@ export interface ThreadMessagePayload {
   ts: string;
   thread_ts: string;
   say: SayFn;
+  files?: Array<{
+    id: string;
+    name: string;
+    mimetype: string;
+    url_private_download: string;
+    size: number;
+  }>;
 }
 
 export interface MemberJoinedPayload {
@@ -60,6 +74,10 @@ export class SlackGateway {
         channel: e.channel,
         ts: e.ts,
         say: say as SayFn,
+        files: (e.files as any[])?.map((f: any) => ({
+          id: f.id, name: f.name, mimetype: f.mimetype,
+          url_private_download: f.url_private_download, size: f.size,
+        })),
       });
     });
 
@@ -85,6 +103,10 @@ export class SlackGateway {
         channel: msg.channel as string,
         ts: msg.ts as string,
         say: say as SayFn,
+        files: (msg.files as any[])?.map((f: any) => ({
+          id: f.id, name: f.name, mimetype: f.mimetype,
+          url_private_download: f.url_private_download, size: f.size,
+        })),
       });
     });
   }
@@ -106,6 +128,10 @@ export class SlackGateway {
         ts: msg.ts as string,
         thread_ts: msg.thread_ts as string,
         say: say as SayFn,
+        files: (msg.files as any[])?.map((f: any) => ({
+          id: f.id, name: f.name, mimetype: f.mimetype,
+          url_private_download: f.url_private_download, size: f.size,
+        })),
       });
     });
   }

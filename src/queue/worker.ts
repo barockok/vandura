@@ -8,6 +8,8 @@ import { runSession, continueSession, type AgentMessage } from "../agent/sdk-run
 import { loadAgents } from "../config/loader.js";
 import type { AgentConfig } from "../config/types.js";
 import { markdownToSlack } from "../slack/format.js";
+import { processFileAttachments } from "../slack/file-handler.js";
+import { env } from "../config/env.js";
 import { createSlackUploadServer } from "../tools/slack-upload-file.js";
 
 // Slack client placeholder - will be injected
@@ -133,10 +135,23 @@ async function processStartSession(job: Job<StartSessionJobData>): Promise<JobRe
     });
   }
 
+  // Process file attachments if present
+  let userMessage = message;
+  if (job.data.files && job.data.files.length > 0) {
+    const fileResult = await processFileAttachments({
+      files: job.data.files,
+      sandboxPath: session.sandboxPath,
+      botToken: env.SLACK_BOT_TOKEN,
+    });
+    if (fileResult.textAnnotations.length > 0) {
+      userMessage = fileResult.textAnnotations.join("\n") + "\n\n" + message;
+    }
+  }
+
   // Run the agent session
   const result = await runSession(
     session,
-    message,
+    userMessage,
     mcpConfig,
     (msg) => sendToSlack(session, msg),
     agentCfg || undefined,
@@ -188,10 +203,23 @@ async function processContinueSession(job: Job<ContinueSessionJobData>): Promise
     });
   }
 
+  // Process file attachments if present
+  let userMessage = message;
+  if (job.data.files && job.data.files.length > 0) {
+    const fileResult = await processFileAttachments({
+      files: job.data.files,
+      sandboxPath: session.sandboxPath,
+      botToken: env.SLACK_BOT_TOKEN,
+    });
+    if (fileResult.textAnnotations.length > 0) {
+      userMessage = fileResult.textAnnotations.join("\n") + "\n\n" + message;
+    }
+  }
+
   // Continue the session (SDK will resume using session.id)
   const result = await continueSession(
     session,
-    message,
+    userMessage,
     mcpConfig,
     (msg) => sendToSlack(session, msg),
     agentCfg || undefined,

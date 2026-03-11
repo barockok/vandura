@@ -7,6 +7,15 @@ export type JobName =
   | "start_session"
   | "continue_session";
 
+/** Slack file attachment metadata */
+export interface SlackFileAttachment {
+  id: string;
+  name: string;
+  mimetype: string;
+  url_private_download: string;
+  size: number;
+}
+
 /**
  * Base job data shared by all jobs
  */
@@ -23,6 +32,7 @@ export interface StartSessionJobData extends BaseJobData {
   userId: string;
   message: string;
   threadTs?: string;
+  files?: SlackFileAttachment[];
 }
 
 /**
@@ -32,6 +42,7 @@ export interface ContinueSessionJobData extends BaseJobData {
   type: "continue_session";
   sessionId: string;
   message: string;
+  files?: SlackFileAttachment[];
 }
 
 /**

@@ -89,7 +89,7 @@ export async function createApp() {
   }
 
   // Handle @mentions — queue a new session
-  gateway.onMention(async ({ user, text, channel, ts, say }) => {
+  gateway.onMention(async ({ user, text, channel, ts, say, files }) => {
     await auditLogger.log({
       action: "mention_received", actor: user, detail: { text, channel },
     });
@@ -112,13 +112,14 @@ export async function createApp() {
       userId: user,
       message: cleanText,
       threadTs: ts,
+      files,
     });
 
     console.log(`[Gateway] Queued start_session for channel ${channel}, thread ${ts}`);
   });
 
   // Handle thread replies — queue a continue_session job or handle approvals
-  gateway.onThreadMessage(async ({ user, text, channel, thread_ts, say }) => {
+  gateway.onThreadMessage(async ({ user, text, channel, thread_ts, say, files }) => {
     const task = await threadManager.findByThread(channel, thread_ts);
     if (!task) return;
 
@@ -249,6 +250,7 @@ export async function createApp() {
       timestamp: Date.now(),
       sessionId: agentSession.id,
       message: text,
+      files,
     });
 
     console.log(`[Gateway] Queued continue_session for thread ${thread_ts}`);
