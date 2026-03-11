@@ -9,8 +9,9 @@ import { runMigrations } from "./db/migrate.js";
 import { setPool } from "./db/pool.js";
 import { buildHealthCheck, startHealthServer } from "./health.js";
 import { loadToolPolicies as loadToolPoliciesForWorker } from "./agent/permissions.js";
-import { getSessionByThread } from "./agent/session.js";
+import { getSessionByThread, updateBotEngaged } from "./agent/session.js";
 import { PermissionService } from "./permissions/service.js";
+import { analyzeEngagement } from "./slack/engagement.js";
 import { SlackGateway } from "./slack/gateway.js";
 import { OnboardingFlow } from "./slack/onboarding-flow.js";
 import { createSlackResponder } from "./slack/responder.js";
@@ -119,6 +120,33 @@ export async function createApp() {
     const task = await threadManager.findByThread(channel, thread_ts);
     if (!task) return;
 
+    // --- Engagement check ---
+    const agentSession = await getSessionByThread(channel, thread_ts);
+    if (agentSession && authResult.user_id) {
+      const action = analyzeEngagement({
+        text,
+        botUserId: authResult.user_id,
+        currentlyEngaged: agentSession.botEngaged,
+      });
+
+      // Persist state change if different
+      if (action.engaged !== agentSession.botEngaged) {
+        await updateBotEngaged(agentSession.id, action.engaged);
+        if (!action.engaged) {
+          console.log(`[Gateway] Bot disengaged in thread ${thread_ts} (other user mentioned)`);
+        } else {
+          console.log(`[Gateway] Bot re-engaged in thread ${thread_ts} (bot mentioned)`);
+        }
+      }
+
+      // Skip processing if not forwarding
+      if (!action.forward) {
+        console.log(`[Gateway] Skipping message in thread ${thread_ts} (bot disengaged)`);
+        return;
+      }
+    }
+    // --- End engagement check ---
+
     // Check if this is a task close command
     const taskLifecycle = new TaskLifecycle();
     const closeCommand = taskLifecycle.parseCommand(text);
@@ -141,9 +169,6 @@ export async function createApp() {
       await say({ text: summary, thread_ts });
       return;
     }
-
-    // Look up the agent session by thread
-    const agentSession = await getSessionByThread(channel, thread_ts);
 
     // Check for approval/deny text
     const lowerText = text.toLowerCase().trim();
