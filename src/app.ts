@@ -3,7 +3,7 @@ import crypto from "node:crypto";
 import path from "node:path";
 import { Redis } from "ioredis";
 import { env } from "./config/env.js";
-import { loadAgents, loadToolPolicies } from "./config/loader.js";
+import { loadToolPolicies } from "./config/loader.js";
 import { buildHealthCheck, startHealthServer } from "./health.js";
 import { loadToolPolicies as loadToolPoliciesForWorker } from "./agent/permissions.js";
 import { analyzeEngagement } from "./slack/engagement.js";
@@ -18,10 +18,6 @@ import type { Worker } from "bullmq";
 export async function createApp() {
   const configDir = path.join(process.cwd(), "config");
   await loadToolPolicies(path.join(configDir, "tool-policies.yml"));
-  const agents = await loadAgents(path.join(configDir, "agents.yml"));
-
-  const agentConfig = agents[0];
-
   const slackApp = new App({
     token: env.SLACK_BOT_TOKEN,
     appToken: env.SLACK_APP_TOKEN,
