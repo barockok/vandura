@@ -1,7 +1,9 @@
 import { Worker, Job } from "bullmq";
 import { getRedisOptions, QUEUE_NAME } from "./index.js";
 import type { JobData, JobResult, StartSessionJobData, ContinueSessionJobData, Session } from "./types.js";
-import { createSession, getSession, updateSessionStatus } from "../agent/session.js";
+import { randomUUID } from "node:crypto";
+import { mkdir } from "node:fs/promises";
+import type { SessionStore } from "../session/store.js";
 import { loadMcpConfig } from "../agent/mcp-loader.js";
 import { loadToolPolicies } from "../agent/permissions.js";
 import { runSession, continueSession, type AgentMessage } from "../agent/sdk-runtime.js";
@@ -34,6 +36,16 @@ let slackWebClient: { filesUploadV2: (params: Record<string, unknown>) => Promis
  */
 export function setSlackWebClient(client: { filesUploadV2: (params: Record<string, unknown>) => Promise<unknown> }): void {
   slackWebClient = client;
+}
+
+// Session store - will be injected
+let sessionStore: SessionStore | null = null;
+
+/**
+ * Set the session store for managing sessions
+ */
+export function setSessionStore(store: SessionStore): void {
+  sessionStore = store;
 }
 
 // MCP config cache
@@ -108,15 +120,31 @@ async function processStartSession(job: Job<StartSessionJobData>): Promise<JobRe
   // Load tool policies if not loaded
   await loadToolPolicies("config/tool-policies.yml");
 
+  if (!sessionStore) throw new Error("SessionStore not initialised");
+
   // Create session with sandbox directory
-  // userId is the Slack user ID who triggered the session
-  const session = await createSession({
+  const sessionId = randomUUID();
+  const { firstMessageTs: _firstMessageTs } = await sessionStore.create(
+    sessionId,
+    channelId,
+    threadTs || "",
+  );
+  const sandboxPath = sessionStore.sandboxPath(sessionId);
+  await mkdir(sandboxPath, { recursive: true });
+
+  const session: Session = {
+    id: sessionId,
     channelId,
     userId,
-    threadTs,
-    initiatorSlackId: userId, // Store initiator for Tier 2 approvals
-    checkerSlackId: undefined, // Will be set later if needed for Tier 3
-  });
+    threadTs: threadTs || null,
+    sandboxPath,
+    status: "active",
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    initiatorSlackId: userId,
+    checkerSlackId: undefined,
+    botEngaged: true,
+  };
 
   console.log(`[Worker] Created session ${session.id} at ${session.sandboxPath}`);
 
@@ -177,23 +205,27 @@ async function processStartSession(job: Job<StartSessionJobData>): Promise<JobRe
  * Process a continue_session job
  */
 async function processContinueSession(job: Job<ContinueSessionJobData>): Promise<JobResult> {
-  const { sessionId, message } = job.data;
+  const { sessionId, channelId, userId, threadTs, message } = job.data;
+
+  if (!sessionStore) throw new Error("SessionStore not initialised");
 
   console.log(`[Worker] Continuing session ${sessionId}`);
 
-  // Get existing session
-  const session = await getSession(sessionId);
-  if (!session) {
-    return {
-      success: false,
-      error: `Session ${sessionId} not found`,
-    };
-  }
+  const sandboxPath = sessionStore.sandboxPath(sessionId);
+
+  const session: Session = {
+    id: sessionId,
+    channelId,
+    userId,
+    threadTs,
+    sandboxPath,
+    status: "active",
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    botEngaged: true,
+  };
 
   console.log(`[Worker] Session sandbox path: ${session.sandboxPath}`);
-
-  // Update status
-  await updateSessionStatus(sessionId, "active");
 
   // Get MCP config and agent config
   const mcpConfig = await getMcpConfig();

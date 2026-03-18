@@ -41,6 +41,9 @@ export interface StartSessionJobData extends BaseJobData {
 export interface ContinueSessionJobData extends BaseJobData {
   type: "continue_session";
   sessionId: string;
+  channelId: string;
+  userId: string;
+  threadTs: string;
   message: string;
   files?: SlackFileAttachment[];
 }
