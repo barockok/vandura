@@ -1,5 +1,3 @@
-import { writeFile, mkdir } from "node:fs/promises";
-import { join } from "node:path";
 import { query, type Options, type PermissionResult, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 
 /**
@@ -51,24 +49,6 @@ export interface SessionResult {
 }
 
 /**
- * Write MCP server config to a file for Claude Code.
- *
- * Claude Code's --mcp-config expects a file path, not inline JSON.
- * The SDK's mcpServers option serializes to inline JSON which fails.
- * Project-scoped .mcp.json needs interactive approval (doesn't work in SDK mode).
- * Solution: write config to a file, pass path via extraArgs as --mcp-config.
- */
-async function writeMcpConfigFile(sandboxPath: string, mcpConfig: LoadedMcpConfig): Promise<string | undefined> {
-  if (Object.keys(mcpConfig.servers).length === 0) return undefined;
-
-  const config = { mcpServers: mcpConfig.servers };
-  await mkdir(sandboxPath, { recursive: true });
-  const configPath = join(sandboxPath, "mcp-config.json");
-  await writeFile(configPath, JSON.stringify(config, null, 2));
-  return configPath;
-}
-
-/**
  * Create SDK query options for a session
  */
 export function createQueryOptions(
@@ -76,7 +56,6 @@ export function createQueryOptions(
   mcpConfig: LoadedMcpConfig,
   agentConfig?: AgentConfig,
   isResuming: boolean = false,
-  mcpConfigPath?: string,
   sdkMcpServers?: Record<string, McpSdkServerConfigWithInstance>,
 ): Options {
   // Build system prompt with guardrails
@@ -91,6 +70,7 @@ export function createQueryOptions(
       systemPromptExtra: agentConfig.system_prompt_extra,
       guardrails,
       memoryDir: env.VANDURA_MEMORY_DIR,
+      exportSummaryMaxSize: env.EXPORT_SUMMARY_MAX_SIZE,
     });
   }
 
@@ -104,15 +84,16 @@ export function createQueryOptions(
     }
   }
 
+  // Merge external MCP servers (stdio) with in-process SDK MCP servers
+  const allMcpServers: Record<string, any> = {
+    ...mcpConfig.servers,
+    ...sdkMcpServers,
+  };
+
   const queryOptions: Options = {
     cwd: session.sandboxPath,
-    // MCP servers loaded via --mcp-config file path in extraArgs
-    // (SDK's mcpServers uses inline JSON which Claude Code can't parse)
-    ...(mcpConfigPath ? { extraArgs: { "mcp-config": mcpConfigPath } } : {}),
-    // Register in-process SDK MCP servers (slack_upload_file, etc.)
-    ...(sdkMcpServers && Object.keys(sdkMcpServers).length > 0
-      ? { mcpServers: sdkMcpServers }
-      : {}),
+    // Pass all MCP servers via the mcpServers option (both stdio and SDK)
+    ...(Object.keys(allMcpServers).length > 0 ? { mcpServers: allMcpServers } : {}),
     persistSession: true, // Always persist — transcripts must be available across nodes
     model: env.ANTHROPIC_MODEL,
     pathToClaudeCodeExecutable: env.CLAUDE_CODE_PATH,
@@ -161,8 +142,7 @@ export async function runSession(
   agentConfig?: AgentConfig,
   sdkMcpServers?: Record<string, McpSdkServerConfigWithInstance>,
 ): Promise<SessionResult> {
-  const mcpConfigPath = await writeMcpConfigFile(session.sandboxPath, mcpConfig);
-  const options = createQueryOptions(session, mcpConfig, agentConfig, false, mcpConfigPath, sdkMcpServers);
+  const options = createQueryOptions(session, mcpConfig, agentConfig, false, sdkMcpServers);
 
   try {
     const queryResult = query({
@@ -251,8 +231,7 @@ export async function continueSession(
   agentConfig?: AgentConfig,
   sdkMcpServers?: Record<string, McpSdkServerConfigWithInstance>,
 ): Promise<SessionResult> {
-  const mcpConfigPath = await writeMcpConfigFile(session.sandboxPath, mcpConfig);
-  const options = createQueryOptions(session, mcpConfig, agentConfig, true, mcpConfigPath, sdkMcpServers);
+  const options = createQueryOptions(session, mcpConfig, agentConfig, true, sdkMcpServers);
 
   try {
     const queryResult = query({

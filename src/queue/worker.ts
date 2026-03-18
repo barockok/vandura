@@ -11,6 +11,7 @@ import { markdownToSlack } from "../slack/format.js";
 import { processFileAttachments } from "../slack/file-handler.js";
 import { env } from "../config/env.js";
 import { createSlackUploadServer } from "../tools/slack-upload-file.js";
+import { createExportQueryServer } from "../tools/export-query-csv.js";
 
 // Slack client placeholder - will be injected
 let slackClient: {
@@ -125,7 +126,7 @@ async function processStartSession(job: Job<StartSessionJobData>): Promise<JobRe
 
   console.log(`[Worker] MCP servers configured: ${Object.keys(mcpConfig.servers).join(", ")}`);
 
-  // Create slack upload MCP server for this session
+  // Create in-process SDK MCP servers for this session
   const sdkMcpServers: Record<string, ReturnType<typeof createSlackUploadServer>> = {};
   if (slackWebClient) {
     sdkMcpServers["slack-upload"] = createSlackUploadServer({
@@ -134,6 +135,9 @@ async function processStartSession(job: Job<StartSessionJobData>): Promise<JobRe
       threadTs: session.threadTs || undefined,
     });
   }
+  sdkMcpServers["export-query"] = createExportQueryServer({
+    connectionUrl: env.DB_TOOL_CONNECTION_URL,
+  });
 
   // Process file attachments if present
   let userMessage = message;
@@ -196,7 +200,7 @@ async function processContinueSession(job: Job<ContinueSessionJobData>): Promise
   const agentCfg = await getAgentConfig();
   console.log(`[Worker] MCP servers: ${Object.keys(mcpConfig.servers)}`);
 
-  // Create slack upload MCP server for this session
+  // Create in-process SDK MCP servers for this session
   const sdkMcpServers: Record<string, ReturnType<typeof createSlackUploadServer>> = {};
   if (slackWebClient) {
     sdkMcpServers["slack-upload"] = createSlackUploadServer({
@@ -205,6 +209,9 @@ async function processContinueSession(job: Job<ContinueSessionJobData>): Promise
       threadTs: session.threadTs || undefined,
     });
   }
+  sdkMcpServers["export-query"] = createExportQueryServer({
+    connectionUrl: env.DB_TOOL_CONNECTION_URL,
+  });
 
   // Process file attachments if present
   let userMessage = message;

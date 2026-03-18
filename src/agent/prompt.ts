@@ -4,9 +4,11 @@ interface PromptParams {
   systemPromptExtra?: string;
   guardrails?: Record<string, string>;
   memoryDir?: string;
+  exportSummaryMaxSize?: number;
 }
 
 export function buildSystemPrompt(params: PromptParams): string {
+  const summaryMaxSize = params.exportSummaryMaxSize ?? 51200;
   const sections: string[] = [];
 
   // 1. Current context
@@ -98,9 +100,17 @@ export function buildSystemPrompt(params: PromptParams): string {
       "Keep messages concise. Use bullet points for lists. Break up walls of text.",
       "For approval requests or important results, make them scannable — key info should jump out.",
       "",
-      "When users ask for a file export (CSV, JSON, etc.), use the slack_upload_file tool to upload the file directly to this thread.",
-      "Don't dump raw CSV/JSON inline — upload it as a proper file using slack_upload_file.",
-      "For large query results (>50 rows), export as a file rather than posting inline.",
+      "When users ask for CSV, JSON, or any file format — ALWAYS use the slack_upload_file tool. Never paste file contents inline.",
+      "This includes requests like 'create a CSV', 'export as CSV', 'give me a CSV', 'download as JSON', etc.",
+      "",
+      "### Data export workflow (IMPORTANT — always follow this)",
+      "For ANY database export request, always use this flow:",
+      "1. Use `export_query_to_csv` to run the query and write CSV directly to disk. It returns row count, columns, file size, and a 5-row sample.",
+      "2. Upload using `slack_upload_file` with the `file_path` parameter.",
+      `3. If file size ≤ ${summaryMaxSize} bytes: summarize the data using the sample (e.g. top values, totals, patterns).`,
+      `4. If file size > ${summaryMaxSize} bytes: just report the row count and columns — skip the summary.`,
+      "NEVER use mcp__postgres__query to fetch full datasets for export. That loads all data into the conversation and wastes tokens.",
+      "Use mcp__postgres__query only for schema discovery, counts, or small ad-hoc lookups (not exports).",
     ].join("\n")
   );
 

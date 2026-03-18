@@ -30,6 +30,16 @@ tool_policies:
       Upload files to the Slack thread when user requests file exports.
       Prefer this over upload_file for Slack conversations.
       Use appropriate filenames with correct extensions.
+      For large files, use file_path to upload from disk instead of content.
+
+  export_query_to_csv:
+    tier: 1
+    connection_type: shared
+    guardrails: |
+      Use for exporting query results with >50 rows to save tokens.
+      Only SELECT/WITH queries allowed.
+      Write output to the session workspace directory.
+      Pair with slack_upload_file (file_path) to deliver the file.
 
   # Default for unknown tools (includes all Grafana MCP tools, etc.)
   _default:
