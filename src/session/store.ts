@@ -39,6 +39,7 @@ export interface SlackClient {
     channel: string;
     ts: string;
     limit: number;
+    include_all_metadata?: boolean;
   }): Promise<{
     messages?: Array<{
       user?: string;
@@ -221,6 +222,7 @@ export class SessionStore {
       channel: channelId,
       ts: threadTs,
       limit: 10,
+      include_all_metadata: true,
     });
 
     const messages = result.messages ?? [];

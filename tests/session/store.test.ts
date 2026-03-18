@@ -249,6 +249,7 @@ describe("SessionStore", () => {
         channel: CHANNEL_ID,
         ts: THREAD_TS,
         limit: 10,
+        include_all_metadata: true,
       });
     });
   });
