@@ -1,12 +1,12 @@
 /**
  * PostToolUse Hook - Audit logging for all tool executions
  *
- * This hook logs every tool execution to the audit_logs table after it completes,
+ * This hook emits an audit event for every tool execution after it completes,
  * capturing input, output, and approval information for compliance and debugging.
  */
 
 import type { HookCallback, PostToolUseHookInput } from "@anthropic-ai/claude-agent-sdk";
-import { pool } from "../db/pool.js";
+import { auditEmitter } from "../audit/emitter.js";
 
 /**
  * PostToolUse hook callback
@@ -25,37 +25,16 @@ export const postToolUseHook: HookCallback = async (input, toolUseId, context) =
 
   console.log(`[PostToolUse] Logging tool: ${toolName}, Session: ${sessionId}`);
 
-  try {
-    // Safely stringify tool input/output
-    const stringifySafely = (obj: unknown): string => {
-      try {
-        return JSON.stringify(obj);
-      } catch {
-        return JSON.stringify({ error: "Could not stringify" });
-      }
-    };
+  auditEmitter.emit("tool_use", {
+    sessionId,
+    toolName,
+    toolInput,
+    toolOutput: toolResult,
+    toolUseId: toolUseId || "",
+    timestamp: new Date(),
+  });
 
-    // Insert audit log entry
-    await pool.query(
-      `INSERT INTO audit_logs (session_id, tool_name, tool_input, tool_output, tool_use_id)
-       VALUES ($1, $2, $3, $4, $5)
-       ON CONFLICT DO NOTHING`,
-      [
-        sessionId,
-        toolName,
-        stringifySafely(toolInput),
-        stringifySafely(toolResult),
-        toolUseId || null,
-      ]
-    );
+  console.log(`[PostToolUse] Logged ${toolName}`);
 
-    console.log(`[PostToolUse] Logged ${toolName}`);
-
-    return {};
-  } catch (error) {
-    console.error("[PostToolUse] Error logging tool execution:", error);
-
-    // Don't block execution on logging errors
-    return {};
-  }
+  return {};
 };
