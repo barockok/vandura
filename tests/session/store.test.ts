@@ -35,12 +35,12 @@ function createMockRedis() {
 function createMockSlackClient(): SlackClient & {
   postMessage: ReturnType<typeof vi.fn>;
   updateMessage: ReturnType<typeof vi.fn>;
-  conversationsHistory: ReturnType<typeof vi.fn>;
+  conversationsReplies: ReturnType<typeof vi.fn>;
 } {
   return {
     postMessage: vi.fn(async () => ({ ts: "1234567890.000001" })),
     updateMessage: vi.fn(async () => undefined),
-    conversationsHistory: vi.fn(async () => ({ messages: [] })),
+    conversationsReplies: vi.fn(async () => ({ messages: [] })),
   };
 }
 
@@ -148,11 +148,11 @@ describe("SessionStore", () => {
       redis.store.set(`thread:${CHANNEL_ID}:${THREAD_TS}`, SESSION_ID);
 
       await store.resolve(CHANNEL_ID, THREAD_TS);
-      expect(slack.conversationsHistory).not.toHaveBeenCalled();
+      expect(slack.conversationsReplies).not.toHaveBeenCalled();
     });
 
     it("falls back to Slack on Redis miss and rehydrates Redis", async () => {
-      slack.conversationsHistory.mockResolvedValueOnce({
+      slack.conversationsReplies.mockResolvedValueOnce({
         messages: [
           {
             user: BOT_USER_ID,
@@ -186,7 +186,7 @@ describe("SessionStore", () => {
     });
 
     it("rehydrates pending approval from Slack metadata (without toolInput)", async () => {
-      slack.conversationsHistory.mockResolvedValueOnce({
+      slack.conversationsReplies.mockResolvedValueOnce({
         messages: [
           {
             user: BOT_USER_ID,
@@ -223,14 +223,14 @@ describe("SessionStore", () => {
     });
 
     it("returns null when nothing found in Redis or Slack", async () => {
-      slack.conversationsHistory.mockResolvedValueOnce({ messages: [] });
+      slack.conversationsReplies.mockResolvedValueOnce({ messages: [] });
 
       const result = await store.resolve(CHANNEL_ID, THREAD_TS);
       expect(result).toBeNull();
     });
 
     it("returns null when Slack has messages but none from the bot", async () => {
-      slack.conversationsHistory.mockResolvedValueOnce({
+      slack.conversationsReplies.mockResolvedValueOnce({
         messages: [
           { user: "U_OTHER", ts: "1700000001.000001", text: "hello" },
         ],
@@ -240,15 +240,14 @@ describe("SessionStore", () => {
       expect(result).toBeNull();
     });
 
-    it("calls conversationsHistory with correct parameters", async () => {
-      slack.conversationsHistory.mockResolvedValueOnce({ messages: [] });
+    it("calls conversationsReplies with correct parameters", async () => {
+      slack.conversationsReplies.mockResolvedValueOnce({ messages: [] });
 
       await store.resolve(CHANNEL_ID, THREAD_TS);
 
-      expect(slack.conversationsHistory).toHaveBeenCalledWith({
+      expect(slack.conversationsReplies).toHaveBeenCalledWith({
         channel: CHANNEL_ID,
-        oldest: THREAD_TS,
-        inclusive: true,
+        ts: THREAD_TS,
         limit: 10,
       });
     });
@@ -409,7 +408,7 @@ describe("SessionStore", () => {
   describe("updateSlackMetadata (via setPendingApproval without cached ts)", () => {
     it("looks up first bot message when ts is not cached", async () => {
       // Don't call create — so ts is not cached
-      slack.conversationsHistory.mockResolvedValueOnce({
+      slack.conversationsReplies.mockResolvedValueOnce({
         messages: [
           {
             user: BOT_USER_ID,
@@ -436,7 +435,7 @@ describe("SessionStore", () => {
         approval
       );
 
-      expect(slack.conversationsHistory).toHaveBeenCalled();
+      expect(slack.conversationsReplies).toHaveBeenCalled();
       expect(slack.updateMessage).toHaveBeenCalledWith(
         expect.objectContaining({ ts: "1700000099.000099" })
       );

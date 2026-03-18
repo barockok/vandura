@@ -35,10 +35,9 @@ export interface SlackClient {
     };
   }): Promise<void>;
 
-  conversationsHistory(options: {
+  conversationsReplies(options: {
     channel: string;
-    oldest: string;
-    inclusive: boolean;
+    ts: string;
     limit: number;
   }): Promise<{
     messages?: Array<{
@@ -218,10 +217,9 @@ export class SessionStore {
     channelId: string,
     threadTs: string
   ): Promise<string | null> {
-    const result = await this.slackClient.conversationsHistory({
+    const result = await this.slackClient.conversationsReplies({
       channel: channelId,
-      oldest: threadTs,
-      inclusive: true,
+      ts: threadTs,
       limit: 10,
     });
 
@@ -288,10 +286,9 @@ export class SessionStore {
 
     if (!messageTs) {
       // Look up the first bot message in the thread
-      const result = await this.slackClient.conversationsHistory({
+      const result = await this.slackClient.conversationsReplies({
         channel: channelId,
-        oldest: threadTs,
-        inclusive: true,
+        ts: threadTs,
         limit: 10,
       });
 

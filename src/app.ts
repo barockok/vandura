@@ -38,7 +38,7 @@ export async function createApp() {
     slackClient: {
       postMessage: (params) => slackApp.client.chat.postMessage(params as any) as any,
       updateMessage: (params) => slackApp.client.chat.update(params as any) as any,
-      conversationsHistory: (params) => slackApp.client.conversations.history(params as any) as any,
+      conversationsReplies: (params) => slackApp.client.conversations.replies(params as any) as any,
     },
     botUserId: authResult.user_id || "",
   });
