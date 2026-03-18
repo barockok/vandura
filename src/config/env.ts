@@ -3,8 +3,7 @@ import { config } from "dotenv";
 config();
 
 export const env = {
-  DATABASE_URL: process.env.DATABASE_URL ?? "postgres://vandura:vandura@localhost:5432/vandura",
-  DB_TOOL_CONNECTION_URL: process.env.DB_TOOL_CONNECTION_URL ?? process.env.DATABASE_URL ?? "postgres://vandura:vandura@localhost:5432/vandura",
+  DB_TOOL_CONNECTION_URL: process.env.DB_TOOL_CONNECTION_URL ?? "postgres://vandura:vandura@localhost:5432/vandura",
   REDIS_URL: process.env.REDIS_URL ?? "redis://localhost:6379",
   CLAUDE_SESSIONS_DIR: process.env.CLAUDE_SESSIONS_DIR,
   CLAUDE_CODE_PATH: process.env.CLAUDE_CODE_PATH,

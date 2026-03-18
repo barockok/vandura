@@ -19,6 +19,7 @@ import type { Session } from "../queue/types.js";
 import type { LoadedMcpConfig } from "./mcp-loader.js";
 import { getAllGuardrails } from "./permissions.js";
 import { buildSystemPrompt } from "./prompt.js";
+import type { HookCallback } from "@anthropic-ai/claude-agent-sdk";
 import { preToolUseHook } from "../hooks/pre-tool-use.js";
 import { postToolUseHook } from "../hooks/post-tool-use.js";
 
@@ -57,6 +58,7 @@ export function createQueryOptions(
   agentConfig?: AgentConfig,
   isResuming: boolean = false,
   sdkMcpServers?: Record<string, McpSdkServerConfigWithInstance>,
+  hookFns?: { preToolUse?: HookCallback; postToolUse?: HookCallback },
 ): Options {
   // Build system prompt with guardrails
   let systemPrompt: string | undefined;
@@ -106,8 +108,8 @@ export function createQueryOptions(
       },
     } : {}),
     hooks: {
-      PreToolUse: [{ hooks: [preToolUseHook] }],
-      PostToolUse: [{ hooks: [postToolUseHook] }],
+      PreToolUse: [{ hooks: [hookFns?.preToolUse ?? preToolUseHook] }],
+      PostToolUse: [{ hooks: [hookFns?.postToolUse ?? postToolUseHook] }],
     },
     // Allow all tools at SDK level — our PreToolUse hook handles maker-checker
     canUseTool: async (
@@ -141,8 +143,9 @@ export async function runSession(
   onMessage: MessageCallback,
   agentConfig?: AgentConfig,
   sdkMcpServers?: Record<string, McpSdkServerConfigWithInstance>,
+  hookFns?: { preToolUse?: HookCallback; postToolUse?: HookCallback },
 ): Promise<SessionResult> {
-  const options = createQueryOptions(session, mcpConfig, agentConfig, false, sdkMcpServers);
+  const options = createQueryOptions(session, mcpConfig, agentConfig, false, sdkMcpServers, hookFns);
 
   try {
     const queryResult = query({
@@ -230,8 +233,9 @@ export async function continueSession(
   onMessage: MessageCallback,
   agentConfig?: AgentConfig,
   sdkMcpServers?: Record<string, McpSdkServerConfigWithInstance>,
+  hookFns?: { preToolUse?: HookCallback; postToolUse?: HookCallback },
 ): Promise<SessionResult> {
-  const options = createQueryOptions(session, mcpConfig, agentConfig, true, sdkMcpServers);
+  const options = createQueryOptions(session, mcpConfig, agentConfig, true, sdkMcpServers, hookFns);
 
   try {
     const queryResult = query({

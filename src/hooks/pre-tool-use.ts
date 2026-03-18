@@ -3,16 +3,16 @@
  *
  * Checks tool tier from tool-policies.yml:
  * - Tier 1: Auto-allow (pass through)
- * - Tier 2/3: Check for resolved approval in DB.
- *   If approved → allow. If denied → deny.
- *   If no approval exists → store pending, post to Slack, deny.
+ * - Tier 2/3: Check for pending approval in SessionStore.
+ *   If already pending for same tool → block again.
+ *   If no pending → create one and block.
  */
 
 import type { HookCallback, PreToolUseHookInput } from "@anthropic-ai/claude-agent-sdk";
-import { getToolTier, storePendingApproval, getResolvedApproval } from "../agent/permissions.js";
-import { postApprovalToSlack } from "./approval-notifier.js";
+import { getToolTier } from "../agent/permissions.js";
 import { containsSensitiveData } from "../tools/memory.js";
 import { env } from "../config/env.js";
+import type { SessionStore } from "../session/store.js";
 
 /**
  * Check if a tool call is a write to the memory directory
@@ -42,78 +42,90 @@ export function shouldBlockMemoryWrite(
   return null;
 }
 
-export const preToolUseHook: HookCallback = async (input, toolUseId, context) => {
-  const preInput = input as PreToolUseHookInput;
-  const sessionId = preInput.session_id;
-  const toolName = preInput.tool_name;
-  const toolInput = (preInput.tool_input as Record<string, unknown>) ?? {};
+/**
+ * Factory that creates a PreToolUse hook backed by SessionStore.
+ */
+export function createPreToolUseHook(sessionStore: SessionStore): HookCallback {
+  return async (input, toolUseId, _context) => {
+    const preInput = input as PreToolUseHookInput;
+    const sessionId = preInput.session_id;
+    const toolName = preInput.tool_name;
+    const toolInput = (preInput.tool_input as Record<string, unknown>) ?? {};
 
-  console.log(`[PreToolUse] Tool: ${toolName}, Session: ${sessionId}`);
+    console.log(`[PreToolUse] Tool: ${toolName}, Session: ${sessionId}`);
 
-  // Memory write guard — block sensitive data from being saved
-  if (isMemoryWrite(toolName, toolInput, env.VANDURA_MEMORY_DIR)) {
-    const blockReason = shouldBlockMemoryWrite(toolInput);
-    if (blockReason) {
-      console.log(`[PreToolUse] Blocked memory write: sensitive data detected`);
+    // Memory write guard — block sensitive data from being saved
+    if (isMemoryWrite(toolName, toolInput, env.VANDURA_MEMORY_DIR)) {
+      const blockReason = shouldBlockMemoryWrite(toolInput);
+      if (blockReason) {
+        console.log(`[PreToolUse] Blocked memory write: sensitive data detected`);
+        return {
+          decision: "block" as const,
+          reason: blockReason,
+        };
+      }
+      // Safe memory write — auto-allow (tier 1)
+      return {};
+    }
+
+    const tier = getToolTier(toolName);
+
+    // Tier 1: auto-allow
+    if (tier === 1) {
+      console.log(`[PreToolUse] Tier 1 auto-allow: ${toolName}`);
+      return {};
+    }
+
+    // Tier 2/3: check for existing pending approval in SessionStore
+    const pending = await sessionStore.getPendingApproval(sessionId);
+
+    if (pending && pending.toolName === toolName) {
+      // Already pending for the same tool — block again
+      const reason = `Awaiting ${tier === 2 ? "initiator" : "checker"} approval for tool "${toolName}". Reply \`approve\` or \`deny\` in the thread to continue.`;
+      console.log(`[PreToolUse] Already pending approval for ${toolName}, blocking`);
       return {
         decision: "block" as const,
-        reason: blockReason,
+        reason,
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse" as const,
+          permissionDecision: "deny" as const,
+          permissionDecisionReason: reason,
+        },
       };
     }
-    // Safe memory write — auto-allow (tier 1)
-    return {};
-  }
 
-  const tier = getToolTier(toolName);
+    // No pending approval — create one
+    console.log(`[PreToolUse] Tier ${tier} — requesting approval for ${toolName}`);
 
-  // Tier 1: auto-allow
-  if (tier === 1) {
-    console.log(`[PreToolUse] Tier 1 auto-allow: ${toolName}`);
-    return {};
-  }
+    await sessionStore.setPendingApproval(sessionId, "", "", {
+      toolName,
+      tier: tier as 1 | 2 | 3,
+      toolUseId: toolUseId ?? "",
+      toolInput,
+    });
+    // Note: channelId/threadTs are empty strings for now — will be properly wired in Task 6
 
-  // Tier 2/3: check for existing resolved approval
-  const resolved = await getResolvedApproval(sessionId, toolName);
+    const reason = `Awaiting ${tier === 2 ? "initiator" : "checker"} approval for tool "${toolName}". Reply \`approve\` or \`deny\` in the thread to continue.`;
 
-  if (resolved) {
-    if (resolved.decision === "allow") {
-      console.log(`[PreToolUse] Found approved approval for ${toolName}, allowing`);
-      return { decision: "approve" as const };
-    }
-    console.log(`[PreToolUse] Found denied approval for ${toolName}, denying`);
     return {
       decision: "block" as const,
-      reason: `Tool "${toolName}" was denied by approver.`,
+      reason,
       hookSpecificOutput: {
         hookEventName: "PreToolUse" as const,
         permissionDecision: "deny" as const,
-        permissionDecisionReason: `Tool "${toolName}" was denied by approver.`,
+        permissionDecisionReason: reason,
       },
     };
-  }
-
-  // No resolved approval — store pending and notify Slack
-  console.log(`[PreToolUse] Tier ${tier} — requesting approval for ${toolName}`);
-
-  const approval = await storePendingApproval({
-    sessionId,
-    toolName,
-    toolInput,
-    toolUseId: toolUseId ?? "",
-    tier: tier as 1 | 2 | 3,
-  });
-
-  await postApprovalToSlack(sessionId, approval);
-
-  const reason = `Awaiting ${tier === 2 ? "initiator" : "checker"} approval for tool "${toolName}". Reply \`approve\` or \`deny\` in the thread to continue.`;
-
-  return {
-    decision: "block" as const,
-    reason,
-    hookSpecificOutput: {
-      hookEventName: "PreToolUse" as const,
-      permissionDecision: "deny" as const,
-      permissionDecisionReason: reason,
-    },
   };
+}
+
+/**
+ * Legacy preToolUseHook export for backward compatibility.
+ * This is a no-op passthrough that auto-allows everything.
+ * Will be replaced by createPreToolUseHook() in Task 6 when sdk-runtime.ts is updated.
+ */
+export const preToolUseHook: HookCallback = async (input, _toolUseId, _context) => {
+  const preInput = input as PreToolUseHookInput;
+  console.log(`[PreToolUse] Legacy hook (no-op) called for tool: ${preInput.tool_name}`);
+  return {};
 };

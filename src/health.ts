@@ -1,24 +1,16 @@
-import type { Pool } from "./db/connection.js";
+import type { Redis } from "ioredis";
 import type { StorageService } from "./storage/s3.js";
-import type { CredentialManager } from "./credentials/manager.js";
 import { createServer, type Server } from "node:http";
 
 interface HealthDeps {
-  pool: Pool;
+  redis: Redis;
   storage?: StorageService;
-  credentialManager?: CredentialManager;
 }
 
 export interface HealthResult {
   status: "ok" | "degraded";
-  database: string;
+  redis: string;
   storage: string;
-  oauth?: {
-    total: number;
-    valid: number;
-    expiring: number;
-    expired: number;
-  };
   uptime: number;
 }
 
@@ -26,15 +18,14 @@ export function buildHealthCheck(deps: HealthDeps): () => Promise<HealthResult> 
   const startTime = Date.now();
 
   return async (): Promise<HealthResult> => {
-    let dbStatus = "connected";
+    let redisStatus = "connected";
     let storageStatus = "connected";
     let allOk = true;
-    let oauthStatus: HealthResult["oauth"] = undefined;
 
     try {
-      await deps.pool.query("SELECT 1");
+      await deps.redis.ping();
     } catch (err) {
-      dbStatus = `error: ${err instanceof Error ? err.message : "unknown"}`;
+      redisStatus = `error: ${err instanceof Error ? err.message : "unknown"}`;
       allOk = false;
     }
 
@@ -49,30 +40,10 @@ export function buildHealthCheck(deps: HealthDeps): () => Promise<HealthResult> 
       storageStatus = "not_configured";
     }
 
-    // Check OAuth token health if credential manager is available
-    if (deps.credentialManager) {
-      try {
-        const healthChecks = await deps.credentialManager.checkOAuthHealth();
-        oauthStatus = {
-          total: healthChecks.length,
-          valid: healthChecks.filter((h) => h.status === "valid").length,
-          expiring: healthChecks.filter((h) => h.status === "expiring").length,
-          expired: healthChecks.filter((h) => h.status === "expired").length,
-        };
-        if (oauthStatus.expired > 0 || oauthStatus.expiring > 0) {
-          allOk = false;
-        }
-      } catch {
-        oauthStatus = { total: 0, valid: 0, expiring: 0, expired: 0 };
-        // Don't fail health check for OAuth errors, just report degraded
-      }
-    }
-
     return {
       status: allOk ? "ok" : "degraded",
-      database: dbStatus,
+      redis: redisStatus,
       storage: storageStatus,
-      oauth: oauthStatus,
       uptime: Math.floor((Date.now() - startTime) / 1000),
     };
   };
