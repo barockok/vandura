@@ -28,6 +28,7 @@ export interface BaseJobData {
  */
 export interface StartSessionJobData extends BaseJobData {
   type: "start_session";
+  sessionId: string;
   channelId: string;
   userId: string;
   message: string;

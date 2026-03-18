@@ -1,9 +1,10 @@
 import { Worker, Job } from "bullmq";
 import { getRedisOptions, QUEUE_NAME } from "./index.js";
 import type { JobData, JobResult, StartSessionJobData, ContinueSessionJobData, Session } from "./types.js";
-import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import type { SessionStore } from "../session/store.js";
+import { createPreToolUseHook } from "../hooks/pre-tool-use.js";
+import { postToolUseHook } from "../hooks/post-tool-use.js";
 import { loadMcpConfig } from "../agent/mcp-loader.js";
 import { loadToolPolicies } from "../agent/permissions.js";
 import { runSession, continueSession, type AgentMessage } from "../agent/sdk-runtime.js";
@@ -113,7 +114,7 @@ async function sendToSlack(session: Session, message: AgentMessage): Promise<voi
  * Process a start_session job
  */
 async function processStartSession(job: Job<StartSessionJobData>): Promise<JobResult> {
-  const { channelId, userId, message, threadTs } = job.data;
+  const { sessionId, channelId, userId, message, threadTs } = job.data;
 
   console.log(`[Worker] Starting session for channel ${channelId}, user ${userId}, message: "${message.substring(0, 50)}..."`);
 
@@ -122,13 +123,6 @@ async function processStartSession(job: Job<StartSessionJobData>): Promise<JobRe
 
   if (!sessionStore) throw new Error("SessionStore not initialised");
 
-  // Create session with sandbox directory
-  const sessionId = randomUUID();
-  const { firstMessageTs: _firstMessageTs } = await sessionStore.create(
-    sessionId,
-    channelId,
-    threadTs || "",
-  );
   const sandboxPath = sessionStore.sandboxPath(sessionId);
   await mkdir(sandboxPath, { recursive: true });
 
@@ -183,6 +177,12 @@ async function processStartSession(job: Job<StartSessionJobData>): Promise<JobRe
     }
   }
 
+  // Create hooks backed by SessionStore
+  const hookFns = {
+    preToolUse: createPreToolUseHook(sessionStore),
+    postToolUse: postToolUseHook,
+  };
+
   // Run the agent session
   const result = await runSession(
     session,
@@ -191,6 +191,7 @@ async function processStartSession(job: Job<StartSessionJobData>): Promise<JobRe
     (msg) => sendToSlack(session, msg),
     agentCfg || undefined,
     sdkMcpServers,
+    hookFns,
   );
 
   return {
@@ -261,6 +262,12 @@ async function processContinueSession(job: Job<ContinueSessionJobData>): Promise
     }
   }
 
+  // Create hooks backed by SessionStore
+  const hookFns = {
+    preToolUse: createPreToolUseHook(sessionStore),
+    postToolUse: postToolUseHook,
+  };
+
   // Continue the session (SDK will resume using session.id)
   const result = await continueSession(
     session,
@@ -269,6 +276,7 @@ async function processContinueSession(job: Job<ContinueSessionJobData>): Promise
     (msg) => sendToSlack(session, msg),
     agentCfg || undefined,
     sdkMcpServers,
+    hookFns,
   );
 
   return {
