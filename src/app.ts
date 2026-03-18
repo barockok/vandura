@@ -3,11 +3,9 @@ import crypto from "node:crypto";
 import path from "node:path";
 import { Redis } from "ioredis";
 import { env } from "./config/env.js";
-import { loadAgents, loadRoles, loadToolPolicies } from "./config/loader.js";
-import type { RolePermission } from "./config/types.js";
+import { loadAgents, loadToolPolicies } from "./config/loader.js";
 import { buildHealthCheck, startHealthServer } from "./health.js";
 import { loadToolPolicies as loadToolPoliciesForWorker } from "./agent/permissions.js";
-import { PermissionService } from "./permissions/service.js";
 import { analyzeEngagement } from "./slack/engagement.js";
 import { SlackGateway } from "./slack/gateway.js";
 import { createSlackResponder } from "./slack/responder.js";
@@ -21,15 +19,6 @@ export async function createApp() {
   const configDir = path.join(process.cwd(), "config");
   await loadToolPolicies(path.join(configDir, "tool-policies.yml"));
   const agents = await loadAgents(path.join(configDir, "agents.yml"));
-
-  let roles: Record<string, RolePermission> = {};
-  try {
-    roles = await loadRoles(path.join(configDir, "roles.yml"));
-  } catch {
-    console.warn("[CONFIG] roles.yml not found — running without role-based permissions");
-  }
-
-  const permissionService = new PermissionService(roles);
 
   const agentConfig = agents[0];
 
@@ -247,7 +236,6 @@ export async function createApp() {
       console.log("Shutdown complete.");
     },
     gateway, healthCheck,
-    permissionService,
     queue, worker, sessionStore,
   };
 }
