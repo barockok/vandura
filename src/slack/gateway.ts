@@ -42,6 +42,7 @@ export interface MemberJoinedPayload {
 export class SlackGateway {
   private botUserId: string | null = null;
   private processedMentions = new Set<string>();
+  private threadHandler: ((payload: ThreadMessagePayload) => void | Promise<void>) | null = null;
 
   constructor(private app: App) {}
 
@@ -68,6 +69,25 @@ export class SlackGateway {
     this.app.event("app_mention", async ({ event, say }) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const e = event as any;
+
+      // If this mention is inside a thread, route to threadHandler instead
+      // (re-engaging the bot in an existing thread should continue, not start new)
+      if (e.thread_ts && this.threadHandler) {
+        await this.threadHandler({
+          user: e.user ?? "",
+          text: e.text ?? "",
+          channel: e.channel,
+          ts: e.ts,
+          thread_ts: e.thread_ts,
+          say: say as SayFn,
+          files: (e.files as any[])?.map((f: any) => ({
+            id: f.id, name: f.name, mimetype: f.mimetype,
+            url_private_download: f.url_private_download, size: f.size,
+          })),
+        });
+        return;
+      }
+
       await dedupedHandler({
         user: e.user ?? "",
         text: e.text ?? "",
@@ -112,6 +132,7 @@ export class SlackGateway {
   }
 
   onThreadMessage(handler: (payload: ThreadMessagePayload) => void | Promise<void>): void {
+    this.threadHandler = handler;
     this.app.event("message", async ({ event, say }) => {
       const msg = event as unknown as Record<string, unknown>;
 
