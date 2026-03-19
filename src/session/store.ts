@@ -116,6 +116,7 @@ export class SessionStore {
         event_payload: {
           sessionId,
           pendingApproval: null,
+          botEngaged: true,
         },
       },
     });
@@ -168,6 +169,7 @@ export class SessionStore {
       JSON.stringify(approval)
     );
 
+    const engaged = await this.isBotEngaged(sessionId);
     await this.updateSlackMetadata(sessionId, channelId, threadTs, {
       sessionId,
       pendingApproval: {
@@ -175,6 +177,7 @@ export class SessionStore {
         tier: approval.tier,
         toolUseId: approval.toolUseId,
       },
+      botEngaged: engaged,
     });
   }
 
@@ -203,16 +206,35 @@ export class SessionStore {
     const sessionKey = `session:${sessionId}`;
     await this.redis.hdel(sessionKey, "pendingApproval");
 
+    const engaged = await this.isBotEngaged(sessionId);
     await this.updateSlackMetadata(sessionId, channelId, threadTs, {
       sessionId,
       pendingApproval: null,
+      botEngaged: engaged,
     });
   }
 
-  /** Set bot engagement state for a session. */
-  async setBotEngaged(sessionId: string, engaged: boolean): Promise<void> {
+  /** Set bot engagement state for a session. Double-writes to Redis + Slack metadata. */
+  async setBotEngaged(
+    sessionId: string,
+    channelId: string,
+    threadTs: string,
+    engaged: boolean,
+  ): Promise<void> {
     const sessionKey = `session:${sessionId}`;
     await this.redis.hset(sessionKey, "botEngaged", engaged ? "1" : "0");
+
+    // Read current pending approval to preserve it in metadata
+    const pending = await this.getPendingApproval(sessionId);
+    const pendingMeta = pending
+      ? { toolName: pending.toolName, tier: pending.tier, toolUseId: pending.toolUseId }
+      : null;
+
+    await this.updateSlackMetadata(sessionId, channelId, threadTs, {
+      sessionId,
+      pendingApproval: pendingMeta,
+      botEngaged: engaged,
+    });
   }
 
   /** Check if bot is engaged for a session. Defaults to true if not set. */
@@ -277,6 +299,13 @@ export class SessionStore {
     } else {
       await this.redis.hset(sessionKey, "pendingApproval", "null");
     }
+
+    // Rehydrate bot engagement state
+    const botEngaged = payload.botEngaged;
+    if (botEngaged === false) {
+      await this.redis.hset(sessionKey, "botEngaged", "0");
+    }
+
     await this.redis.expire(sessionKey, this.sessionTtl);
 
     // Cache the first message ts

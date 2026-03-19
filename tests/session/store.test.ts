@@ -111,6 +111,7 @@ describe("SessionStore", () => {
           event_payload: {
             sessionId: SESSION_ID,
             pendingApproval: null,
+            botEngaged: true,
           },
         },
       });
@@ -321,6 +322,7 @@ describe("SessionStore", () => {
               tier: 3,
               toolUseId: "tu_456",
             },
+            botEngaged: true,
           },
         },
       });
@@ -400,6 +402,7 @@ describe("SessionStore", () => {
           event_payload: {
             sessionId: SESSION_ID,
             pendingApproval: null,
+            botEngaged: true,
           },
         },
       });

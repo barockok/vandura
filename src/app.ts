@@ -108,7 +108,7 @@ export async function createApp() {
       });
 
       if (action.engaged !== currentlyEngaged) {
-        await sessionStore.setBotEngaged(sessionId, action.engaged);
+        await sessionStore.setBotEngaged(sessionId, channel, thread_ts, action.engaged);
         console.log(`[Gateway] Bot ${action.engaged ? "re-engaged" : "disengaged"} in thread ${thread_ts}`);
       }
 
