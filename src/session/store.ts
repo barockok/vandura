@@ -145,12 +145,11 @@ export class SessionStore {
   }
 
   /**
-   * Derive the sandbox path for a session. Pure function based on session ID
-   * and the current date.
+   * Derive the sandbox path for a session. Pure function based on session ID.
+   * No date component — sessions must resolve to the same path across days.
    */
   sandboxPath(sessionId: string): string {
-    const date = new Date().toISOString().slice(0, 10);
-    return join(this.sessionsDir, date, sessionId);
+    return join(this.sessionsDir, sessionId);
   }
 
   /**

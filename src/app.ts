@@ -47,6 +47,7 @@ export async function createApp() {
       conversationsReplies: (params) => slackApp.client.conversations.replies(params as any) as any,
     },
     botUserId: authResult.user_id || "",
+    sessionsDir: env.CLAUDE_SESSIONS_DIR,
   });
 
   // Inject SessionStore into worker

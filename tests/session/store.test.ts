@@ -258,9 +258,8 @@ describe("SessionStore", () => {
   describe("sandboxPath", () => {
     it("derives correct path with default sessionsDir", () => {
       const path = store.sandboxPath(SESSION_ID);
-      const date = new Date().toISOString().slice(0, 10);
       const home = process.env.HOME || "/root";
-      expect(path).toBe(`${home}/.claude/sessions/${date}/${SESSION_ID}`);
+      expect(path).toBe(`${home}/.claude/sessions/${SESSION_ID}`);
     });
 
     it("uses custom sessionsDir when provided", () => {
@@ -268,8 +267,7 @@ describe("SessionStore", () => {
         sessionsDir: "/tmp/sessions",
       });
       const path = customStore.sandboxPath(SESSION_ID);
-      const date = new Date().toISOString().slice(0, 10);
-      expect(path).toBe(`/tmp/sessions/${date}/${SESSION_ID}`);
+      expect(path).toBe(`/tmp/sessions/${SESSION_ID}`);
     });
   });
 
