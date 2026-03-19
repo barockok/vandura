@@ -1,5 +1,6 @@
 FROM node:22-alpine AS build
 WORKDIR /app
+RUN apk add --no-cache bash
 RUN npm install -g @anthropic-ai/claude-code
 # Pre-cache MCP server packages so npx doesn't need to download them at runtime
 # (Claude Code has a short MCP startup timeout that npx downloads can exceed)
@@ -21,7 +22,6 @@ COPY --from=build /app/dist ./dist
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/package.json ./
 COPY --from=build /app/config ./config
-COPY --from=build /app/src/db/migrations ./src/db/migrations
 USER vandura
 EXPOSE 3000
 CMD ["node", "dist/index.js"]
