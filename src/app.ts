@@ -16,6 +16,12 @@ import { createWorker, closeWorker, setSlackClient, setSlackWebClient, setSessio
 import type { Worker } from "bullmq";
 
 export async function createApp() {
+  // Wire audit events to stdout
+  auditEmitter.on("tool_use", (e) => console.log(JSON.stringify({ audit: "tool_use", ...e })));
+  auditEmitter.on("session_start", (e) => console.log(JSON.stringify({ audit: "session_start", ...e })));
+  auditEmitter.on("approval_requested", (e) => console.log(JSON.stringify({ audit: "approval_requested", ...e })));
+  auditEmitter.on("approval_resolved", (e) => console.log(JSON.stringify({ audit: "approval_resolved", ...e })));
+
   const configDir = path.join(process.cwd(), "config");
   await loadToolPolicies(path.join(configDir, "tool-policies.yml"));
   const slackApp = new App({
