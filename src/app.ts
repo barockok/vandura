@@ -99,14 +99,18 @@ export async function createApp() {
     if (!sessionId) return;
 
     // --- Engagement check ---
-    // For now, engagement is simplified — always forward if session exists.
-    // Bot engagement/disengagement can be re-added with Redis state if needed.
     if (authResult.user_id) {
+      const currentlyEngaged = await sessionStore.isBotEngaged(sessionId);
       const action = analyzeEngagement({
         text,
         botUserId: authResult.user_id,
-        currentlyEngaged: true, // default engaged
+        currentlyEngaged,
       });
+
+      if (action.engaged !== currentlyEngaged) {
+        await sessionStore.setBotEngaged(sessionId, action.engaged);
+        console.log(`[Gateway] Bot ${action.engaged ? "re-engaged" : "disengaged"} in thread ${thread_ts}`);
+      }
 
       if (!action.forward) {
         console.log(`[Gateway] Skipping message in thread ${thread_ts} (bot disengaged)`);

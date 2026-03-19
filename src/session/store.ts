@@ -209,6 +209,19 @@ export class SessionStore {
     });
   }
 
+  /** Set bot engagement state for a session. */
+  async setBotEngaged(sessionId: string, engaged: boolean): Promise<void> {
+    const sessionKey = `session:${sessionId}`;
+    await this.redis.hset(sessionKey, "botEngaged", engaged ? "1" : "0");
+  }
+
+  /** Check if bot is engaged for a session. Defaults to true if not set. */
+  async isBotEngaged(sessionId: string): Promise<boolean> {
+    const sessionKey = `session:${sessionId}`;
+    const val = await this.redis.hget(sessionKey, "botEngaged");
+    return val !== "0";
+  }
+
   // ---- Private helpers ----
 
   /**
