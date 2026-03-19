@@ -237,35 +237,48 @@ export async function continueSession(
 ): Promise<SessionResult> {
   const options = createQueryOptions(session, mcpConfig, agentConfig, true, sdkMcpServers, hookFns);
 
-  try {
-    const queryResult = query({
-      prompt: userMessage,
-      options: {
-        ...options,
-        resume: session.id,
-      },
-    });
+  // Try to resume existing session; if the session is stale (e.g. after
+  // container restart), fall back to starting a fresh session.
+  for (const attempt of ["resume", "fresh"] as const) {
+    try {
+      const queryOptions = attempt === "resume"
+        ? { ...options, resume: session.id }
+        : { ...options, sessionId: session.id };
 
-    for await (const msg of queryResult) {
-      const agentMessage = processSdkMessage(msg, session.id);
-      if (agentMessage) {
-        await onMessage(agentMessage);
+      const queryResult = query({
+        prompt: userMessage,
+        options: queryOptions,
+      });
+
+      for await (const msg of queryResult) {
+        const agentMessage = processSdkMessage(msg, session.id);
+        if (agentMessage) {
+          await onMessage(agentMessage);
+        }
       }
-    }
 
-    await onMessage({ type: "complete", sessionId: session.id });
-    return { status: "completed" };
-  } catch (error) {
-    console.error(`[Runtime] Error continuing session ${session.id}:`, error);
-    const userMessage = sanitizeErrorMessage(error);
-    await onMessage({
-      type: "error",
-      content: userMessage,
-      sessionId: session.id,
-    });
-    return {
-      status: "error",
-      error: error instanceof Error ? error.message : "Unknown error",
-    };
+      await onMessage({ type: "complete", sessionId: session.id });
+      return { status: "completed" };
+    } catch (error) {
+      if (attempt === "resume") {
+        console.warn(`[Runtime] Resume failed for session ${session.id}, retrying as fresh session:`, error instanceof Error ? error.message : error);
+        continue;
+      }
+
+      console.error(`[Runtime] Error continuing session ${session.id}:`, error);
+      const userMsg = sanitizeErrorMessage(error);
+      await onMessage({
+        type: "error",
+        content: userMsg,
+        sessionId: session.id,
+      });
+      return {
+        status: "error",
+        error: error instanceof Error ? error.message : "Unknown error",
+      };
+    }
   }
+
+  // Unreachable, but TypeScript needs it
+  return { status: "error", error: "Unexpected state" };
 }
