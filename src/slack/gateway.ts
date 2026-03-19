@@ -43,7 +43,6 @@ export class SlackGateway {
   private botUserId: string | null = null;
   private processedMentions = new Set<string>();
   private threadHandler: ((payload: ThreadMessagePayload) => void | Promise<void>) | null = null;
-  private processedThreadMessages = new Set<string>();
 
   constructor(private app: App) {}
 
@@ -74,7 +73,6 @@ export class SlackGateway {
       // If this mention is inside a thread, route to threadHandler instead
       // (re-engaging the bot in an existing thread should continue, not start new)
       if (e.thread_ts && this.threadHandler) {
-        this.processedThreadMessages.add(e.ts);
         await this.threadHandler({
           user: e.user ?? "",
           text: e.text ?? "",
@@ -141,15 +139,14 @@ export class SlackGateway {
       // Only handle thread replies (must have thread_ts)
       if (!msg.thread_ts) return;
 
-      // Skip if already handled via app_mention reroute (avoid double processing)
-      const msgTs = msg.ts as string;
-      if (this.processedThreadMessages.has(msgTs)) {
-        this.processedThreadMessages.delete(msgTs);
-        return;
-      }
-
       // Ignore messages from our own bot (avoid self-loop)
       if (this.botUserId && msg.user === this.botUserId) return;
+
+      // Skip messages that @mention the bot — app_mention reroute handles those
+      if (this.botUserId) {
+        const text = (msg.text as string) ?? "";
+        if (text.includes(`<@${this.botUserId}>`)) return;
+      }
 
       await handler({
         user: msg.user as string,
